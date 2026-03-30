@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Olympics - Time Trial</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: url('BG.jpg') no-repeat center center fixed; 
+            background-size: cover;
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            color: white; 
+            font-family: 'Courier New', Courier, monospace; 
+            overflow: hidden; 
+        }
+        
+        #confetti-canvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 999; display: none; }
+        
+        #game-container { 
+            position: relative; 
+            border: 6px solid #fff; 
+            background: #222; 
+            box-shadow: 0 0 100px rgba(0,0,0,0.9);
+            overflow: hidden; 
+            width: 1200px; 
+            height: 600px; 
+            z-index: 10; 
+        }
+
+        #crowd-bottom { 
+            position: absolute; 
+            bottom: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 300px; 
+            background-image: url('crowd_cheer.gif'); 
+            background-repeat: repeat-x; 
+            background-size: auto 100%; 
+            image-rendering: pixelated; 
+            z-index: 20; 
+        }
+
+        #bgCanvas { position: absolute; top: 0; left: 0; z-index: 1; }
+        #gameCanvas { position: absolute; top: 0; left: 0; z-index: 10; background: transparent; pointer-events: none; }
+        #rori-sprite { position: absolute; width: 180px; height: auto; pointer-events: none; z-index: 15; image-rendering: pixelated; margin-left: -60px; margin-top: -130px; filter: brightness(1.1); }
+        
+        .obstacle { position: absolute; z-index: 14; image-rendering: pixelated; filter: brightness(1.1); }
+        .star-bonus { position: absolute; width: 60px !important; height: 60px !important; z-index: 14; image-rendering: pixelated; }
+        
+        #finish-line { position: absolute; width: 180px; height: 420px; z-index: 5; image-rendering: pixelated; display: none; top: 50%; transform: translateY(-65%); }
+        
+        @keyframes star-rainbow { 0% { filter: hue-rotate(0deg) brightness(2); } 100% { filter: hue-rotate(360deg) brightness(2); } }
+        .star-blink { animation: star-rainbow 0.15s infinite linear !important; }
+
+        .ui { position: absolute; top: 20px; text-align: center; width: 100%; text-shadow: 2px 2px #000; pointer-events: none; z-index: 25; }
+        .stats { font-size: 20px; font-weight: bold; }
+        #timer-display { font-size: 28px; color: #ffcc00; margin-bottom: 5px; font-variant-numeric: tabular-nums; }
+        #mom-bar { width: 300px; height: 12px; background: #222; margin: 5px auto; border: 2px solid #fff; }
+        #mom-fill { width: 0%; height: 100%; background: #00eeff; }
+
+        #boot-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 300; background: rgba(17, 17, 17, 0.95); }
+        #instruction-container { display: none; flex-direction: column; align-items: center; }
+        
+        #instruction-img { max-width: 800px; border: none; box-shadow: none; margin-bottom: 25px; }
+        
+        #start-btn { padding: 15px 60px; font-size: 28px; background: #3a9d3a; color: white; border: 4px solid #fff; cursor: pointer; font-family: 'Courier New', Courier, monospace; font-weight: bold; transition: transform 0.1s; }
+        #start-btn:hover { transform: scale(1.05); background: #45b345; }
+        
+        #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 100; background: rgba(0,0,0,0.8); }
+        #overlay-title { font-size: 60px; margin-bottom: 10px; text-shadow: 4px 4px #000; }
+        #final-time { font-size: 30px; margin-bottom: 20px; color: #00eeff; }
+        #retry-btn { padding: 15px 40px; font-size: 24px; background: #ff3333; color: white; border: 4px solid #fff; cursor: pointer; pointer-events: auto; }
+        
+        .hit-blink { animation: striking-blink 0.1s infinite; }
+        @keyframes striking-blink { 0% { opacity: 1; filter: brightness(4); } 50% { opacity: 0.2; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+    <canvas id="confetti-canvas"></canvas>
+    <div id="boot-screen">
+        <h1 id="boot-status">INITIALIZING WORLD...</h1>
+        <div id="instruction-container">
+            <img src="Instructions.png" id="instruction-img" alt="How to Play">
+            <button id="start-btn">ENTER FIELD</button>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <div id="crowd-bottom"></div>
+        <div id="overlay">
+            <h1 id="overlay-title">GAME OVER</h1>
+            <div id="final-time">TIME: 00:00.00</div>
+            <button id="retry-btn">RESTART RACE</button>
+        </div>
+        <canvas id="bgCanvas"></canvas>
+        <img id="finish-line" src="finish_line.png">
+        <img id="rori-sprite" src="rori_run_right.gif">
+        <div class="ui">
+            <div id="lifeDisplay" style="color: #ff3333; font-size: 34px; letter-spacing: 5px;">♥♥♥</div>
+            <div id="timer-display">00:00.00</div>
+            <div class="stats">GOAL: 5.00 KM | PROGRESS: <span id="distDisplay">0.00</span> KM</div>
+            <div id="mom-bar"><div id="mom-fill"></div></div>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const bgCanvas = document.getElementById('bgCanvas');
+    const bgCtx = bgCanvas.getContext('2d');
+    const confCanvas = document.getElementById('confetti-canvas');
+    const confCtx = confCanvas.getContext('2d');
+    const roriSprite = document.getElementById('rori-sprite');
+    const finishLineImg = document.getElementById('finish-line');
+    const container = document.getElementById('game-container');
+    const distDisplay = document.getElementById('distDisplay');
+    const timerDisplay = document.getElementById('timer-display');
+    const finalTimeDisplay = document.getElementById('final-time');
+    const momFill = document.getElementById('mom-fill');
+    const lifeDisplay = document.getElementById('lifeDisplay');
+    const overlay = document.getElementById('overlay');
+    const bootScreen = document.getElementById('boot-screen');
+    const bootStatus = document.getElementById('boot-status');
+    const instructionContainer = document.getElementById('instruction-container');
+    const startBtn = document.getElementById('start-btn');
+    const retryBtn = document.getElementById('retry-btn');
+
+    const fieldImg = new Image(); fieldImg.src = 'greens.jpg';
+
+    const bgMusic = new Audio('track_field.mp3'); bgMusic.loop = true;
+    const sfxOuch = new Audio('ouch.mp3');
+    const sfxStar = new Audio('star.mp3');
+    const sfxCrying = new Audio('crying.mp3');
+    const sfxCrowd = new Audio('crowd.mp3');
+    const allAudio = [bgMusic, sfxOuch, sfxStar, sfxCrying, sfxCrowd];
+
+    let assetsLoaded = false;
+    function forceReady() {
+        if (assetsLoaded) return;
+        assetsLoaded = true;
+        bootStatus.style.display = "none";
+        instructionContainer.style.display = "flex";
+    }
+    setTimeout(forceReady, 3000);
+
+    let loadedCount = 0;
+    function assetReady() {
+        loadedCount++;
+        if (loadedCount >= allAudio.length) forceReady();
+    }
+    allAudio.forEach(a => {
+        a.addEventListener('canplaythrough', assetReady, { once: true });
+        a.addEventListener('error', assetReady, { once: true });
+        a.load();
+        if (a.readyState >= 3) assetReady();
+    });
+
+    function safePlay(audioVar) {
+        audioVar.currentTime = 0;
+        audioVar.play().catch(e => {});
+    }
+
+    function resizeConfetti() {
+        confCanvas.width = window.innerWidth;
+        confCanvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeConfetti);
+    resizeConfetti();
+
+    canvas.width = bgCanvas.width = 1200;
+    canvas.height = bgCanvas.height = 600;
+
+    let game = { active: false }, player = {}, keys = {}, spawnTimer = null, starEffectTimer = null, confetti = [];
+    let speedLines = []; 
+
+    function formatTime(ms) {
+        let minutes = Math.floor(ms / 60000);
+        let seconds = Math.floor((ms % 60000) / 1000);
+        let centiseconds = Math.floor((ms % 1000) / 10);
+        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}`;
+    }
+
+    function fullReset() {
+        game.active = false;
+        if (spawnTimer) clearInterval(spawnTimer);
+        if (starEffectTimer) clearTimeout(starEffectTimer);
+        document.querySelectorAll('.obstacle, .star-bonus').forEach(el => el.remove());
+        confCanvas.style.display = 'none';
+        setTimeout(initGame, 100);
+    }
+
+    function initGame() {
+        sfxCrying.pause();
+        sfxCrowd.pause();
+        bgMusic.playbackRate = 1.0;
+        game = {
+            active: true, speed: 0, maxSpeed: 5.5, starSpeed: 10.5, 
+            momentum: 0, distanceMeters: 0, goalMeters: 5000, 
+            lives: 3, worldOffset: 0, startTime: null, elapsedTime: 0, lastRunKey: null,
+            objects: [], stars: [], shake: 0,
+            finishLineX: 2000, finishSpawned: false,
+            invincible: false, starMode: false, gameOver: false, win: false
+        };
+        player = { x: 200, y: 240, w: 60, h: 60, jumpY: 0, jumpForce: 0, isJumping: false };
+        keys = {}; 
+        speedLines = [];
+        overlay.style.display = 'none';
+        bootScreen.style.display = 'none';
+        finishLineImg.style.display = 'none';
+        lifeDisplay.innerText = "♥♥♥";
+        timerDisplay.innerText = "00:00.00";
+        roriSprite.src = "rori_run_right.gif";
+        roriSprite.className = "";
+        spawnTimer = setInterval(spawn, 2200);
+    }
+
+    startBtn.addEventListener('click', initGame);
+    retryBtn.addEventListener('click', fullReset);
+
+    window.addEventListener('keydown', (e) => {
+        if (!game.active || game.gameOver) return;
+        if (!game.startTime) { game.startTime = Date.now(); safePlay(bgMusic); }
+        keys[e.code] = true;
+        const k = e.key.toLowerCase();
+        keys[k] = true;
+        if (e.key === "ArrowUp") keys['w'] = true;
+        if (e.key === "ArrowDown") keys['s'] = true;
+        if (['arrowleft', 'a', 'arrowright', 'd'].includes(k)) {
+            const side = (k.includes('left') || k === 'a') ? 'L' : 'R';
+            if (side !== game.lastRunKey) {
+                game.speed += 1.2; 
+                game.momentum = Math.min(100, game.momentum + 15);
+                game.lastRunKey = side;
+            }
+        }
+        if (e.key === ' ' && !player.isJumping) { player.jumpForce = 18; player.isJumping = true; }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+        const k = e.key.toLowerCase();
+        keys[k] = false;
+        if (e.key === "ArrowUp") keys['w'] = false;
+        if (e.key === "ArrowDown") keys['s'] = false;
+    });
+
+    function spawn() {
+        if (!game.active || game.speed < 0.5 || game.gameOver || game.finishSpawned) return;
+        const rand = Math.random();
+        
+        if (rand < 0.15) {
+            const el = document.createElement('img');
+            el.src = 'star.gif'; el.className = 'star-bonus';
+            let y = 50 + Math.random() * 300;
+            el.style.top = y + 'px'; el.style.left = '1300px';
+            container.appendChild(el);
+            game.stars.push({ el, x: 1300, y, w: 60, h: 60 });
+        } else {
+            let src, w, h, y, sMod = 1.5;
+            if (rand < 0.45) { src='rock.png'; w=100; h=50; y=50+Math.random()*300; }
+            else if (rand < 0.8) { src='buldozer.gif'; w=200; h=100; y=50+Math.random()*250; }
+            else { src='bird.gif'; w=80; h=60; y=20+Math.random()*200; sMod=2.5; }
+            const el = document.createElement('img');
+            el.src = src; el.className = 'obstacle';
+            el.style.top = y + 'px'; el.style.left = '1300px';
+            el.style.width = w + 'px';
+            container.appendChild(el);
+            game.objects.push({ el, x: 1300, y, w, h, sMod, hit: false, rotation: 0, tumbleY: 0 });
+        }
+    }
+
+    function handleCollision(obj) {
+        if (game.invincible || game.gameOver) return;
+        safePlay(sfxOuch);
+        game.lives--; game.shake = 30; game.invincible = true; game.speed *= 0.3;
+        lifeDisplay.innerText = "♥".repeat(Math.max(0, game.lives)) + "♡".repeat(3-game.lives);
+        obj.hit = true; obj.tumbleY = -15; 
+        if (game.lives <= 0) endGame("GAME OVER");
+        else {
+            roriSprite.classList.add('hit-blink');
+            setTimeout(() => { if(!game.starMode && game.active) { game.invincible = false; roriSprite.classList.remove('hit-blink'); } }, 1500);
+        }
+    }
+
+    function endGame(text) {
+        game.gameOver = true;
+        bgMusic.playbackRate = 1.0;
+        speedLines = []; 
+        overlay.style.display = 'flex';
+        document.getElementById('overlay-title').innerText = text;
+        finalTimeDisplay.innerText = "FINAL TIME: " + formatTime(game.elapsedTime);
+        
+        if (text.includes("CHAMPION")) {
+            game.win = true; roriSprite.src = "winning.gif"; safePlay(sfxCrowd);
+            confCanvas.style.display = 'block'; spawnConfetti();
+        } else {
+            roriSprite.src = "crying.gif"; safePlay(sfxCrying); bgMusic.pause();
+        }
+        if (spawnTimer) clearInterval(spawnTimer);
+    }
+
+    function spawnConfetti() {
+        confetti = [];
+        for(let i=0; i<150; i++) {
+            confetti.push({
+                x: Math.random() * confCanvas.width,
+                y: Math.random() * confCanvas.height - confCanvas.height,
+                r: Math.random() * 8 + 4,
+                d: Math.random() * 15 + 10,
+                color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+                tilt: Math.random() * 10 - 10,
+                tiltAngleIncremental: Math.random() * 0.07 + 0.05,
+                tiltAngle: 0
+            });
+        }
+    }
+
+    function update() {
+        if (game.active && !game.gameOver) {
+            if (game.startTime) {
+                game.elapsedTime = Date.now() - game.startTime;
+                timerDisplay.innerText = formatTime(game.elapsedTime);
+            }
+
+            // CHEAT CODE CHECK: Right Shift (ShiftRight)
+            if (keys['ShiftRight'] || game.starMode) {
+                game.speed = game.starSpeed;
+                game.momentum = 100;
+            } else {
+                game.speed = Math.max(0, game.speed - 0.04); 
+                game.momentum = Math.max(0, game.momentum - 0.5);
+            }
+            
+            let cap = (game.starMode || keys['ShiftRight']) ? game.starSpeed : game.maxSpeed;
+            if (game.speed > cap) game.speed = cap;
+            
+            game.worldOffset += game.speed * 2; 
+            game.distanceMeters += (game.speed * 0.12);
+            document.getElementById('crowd-bottom').style.backgroundPositionX = -(game.worldOffset * 0.8) + "px";
+            
+            if (game.starMode || game.speed > 5.0 || keys['ShiftRight']) {
+                if (Math.random() > 0.5) {
+                    speedLines.push({ x: 1200, y: Math.random() * 400, length: Math.random() * 100 + 100, speed: Math.random() * 20 + 20 });
+                }
+            }
+            speedLines.forEach((l, i) => { l.x -= l.speed; if (l.x < -200) speedLines.splice(i, 1); });
+
+            if (game.distanceMeters >= 4950 && !game.finishSpawned) {
+                game.finishSpawned = true; finishLineImg.style.display = 'block'; game.finishLineX = 1300;
+            }
+            if (game.finishSpawned) {
+                game.finishLineX -= game.speed; finishLineImg.style.left = game.finishLineX + 'px';
+                if (game.finishLineX < player.x) endGame("5KM CHAMPION!");
+            }
+            if (keys['w'] && player.y > 40) player.y -= 6;
+            if (keys['s'] && player.y < 380) player.y += 6;
+            if (player.isJumping) {
+                player.jumpY -= player.jumpForce; player.jumpForce -= 1.1;
+                if (player.jumpY > 0) { player.jumpY = 0; player.isJumping = false; }
+            }
+            roriSprite.style.left = player.x + 'px';
+            roriSprite.style.top = (player.y + player.jumpY) + 'px';
+            
+            game.objects.forEach((o, i) => {
+                if (o.hit) { o.x += 8; o.y += o.tumbleY; o.tumbleY += 1; o.rotation += 15; o.el.style.transform = `rotate(${o.rotation}deg)`; }
+                else {
+                    o.x -= (game.speed + o.sMod);
+                    const curY = parseFloat(o.el.style.top);
+                    if (o.x < player.x + 30 && o.x + o.w > player.x && curY < player.y + player.jumpY + 40 && curY + o.h > player.y + player.jumpY + 10) handleCollision(o);
+                }
+                o.el.style.left = o.x + 'px'; o.el.style.top = o.y + 'px';
+                if (o.x < -300 || o.x > 1500 || o.y > 700 || o.y < -300) { o.el.remove(); game.objects.splice(i,1); }
+            });
+            
+            game.stars.forEach((s, i) => {
+                s.x -= (game.speed + 2); s.el.style.left = s.x + 'px';
+                if (s.x < player.x + 40 && s.x + 40 > player.x && s.y < player.y + 40 && s.y + 40 > player.y) {
+                    safePlay(sfxStar);
+                    s.el.remove(); 
+                    game.stars.splice(i,1); 
+                    
+                    game.starMode = true; 
+                    game.invincible = true; 
+                    bgMusic.playbackRate = 1.6;
+                    roriSprite.classList.add('star-blink');
+                    
+                    if(starEffectTimer) clearTimeout(starEffectTimer);
+                    starEffectTimer = setTimeout(() => { 
+                        if (game.active) {
+                            game.starMode = false; 
+                            game.invincible = false; 
+                            bgMusic.playbackRate = 1.0; 
+                            roriSprite.classList.remove('star-blink');
+                        }
+                    }, 3000); 
+                }
+                if (s.x < -200) { s.el.remove(); game.stars.splice(i,1); }
+            });
+            distDisplay.innerText = (game.distanceMeters / 1000).toFixed(2);
+            momFill.style.width = game.momentum + "%";
+        } 
+        
+        if (game.win) {
+            confCtx.clearRect(0,0,confCanvas.width, confCanvas.height);
+            confetti.forEach(p => {
+                p.tiltAngle += p.tiltAngleIncremental; p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2; p.x += Math.sin(p.tiltAngle);
+                if (p.y > confCanvas.height) p.y = -20;
+                confCtx.beginPath(); confCtx.lineWidth = p.r; confCtx.strokeStyle = p.color;
+                confCtx.moveTo(p.x + p.tilt + p.r / 4, p.y); confCtx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 4); confCtx.stroke();
+            });
+        }
+        draw();
+        requestAnimationFrame(update);
+    }
+
+    function draw() {
+        bgCtx.clearRect(0, 0, 1200, 600);
+        const scrollX = -(game.worldOffset % 1200);
+        bgCtx.drawImage(fieldImg, scrollX, 0, 1200, 600);
+        bgCtx.drawImage(fieldImg, scrollX + 1200, 0, 1200, 600);
+        ctx.clearRect(0, 0, 1200, 600);
+        if (!game.gameOver && (game.starMode || game.speed > 5.0 || keys['ShiftRight'])) {
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.6)"; ctx.lineWidth = 2;
+            speedLines.forEach(l => { ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(l.x + l.length, l.y); ctx.stroke(); });
+        }
+        if (game.shake > 0) { ctx.translate((Math.random()-0.5)*game.shake, (Math.random()-0.5)*game.shake); game.shake *= 0.8; }
+    }
+    update();
+</script>
+</body>
+</html>
