@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Rori: Meadow Quest Final</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: url('bg.jpg') no-repeat center center fixed; 
+            background-size: cover;
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            min-height: 100vh; 
+            color: #eee; 
+            font-family: 'Courier New', monospace; 
+            overflow: hidden; 
+        }
+        #game-container { 
+            position: relative; 
+            border: 4px solid #333; 
+            width: 1000px; 
+            height: 1000px; 
+            background: #000;
+            box-shadow: 0 0 50px rgba(0,0,0,1); 
+            overflow: hidden; 
+            transition: border-color 0.2s; 
+        }
+        canvas { display: block; position: absolute; top: 0; left: 0; background: #000; }
+        #rori-sprite { position: absolute; pointer-events: none; z-index: 10; transform: translate(-50%, -50%); display: block; width: 100px; height: auto; }
+        
+        .z-img { position: absolute; pointer-events: none; z-index: 11; transform: translate(-50%, -50%); display: none; width: auto; height: 80px; }
+        #z-man-gif { height: 240px; } 
+        #z-girl-gif { height: 120px; } 
+        
+        #ui { position: absolute; top: 20px; width: 960px; left: 20px; display: flex; justify-content: space-between; align-items: center; z-index: 3000; pointer-events: none; }
+        #heart-container { display: flex; gap: 8px; }
+        
+        .heart { width: 25px; height: 25px; background: #e74c3c; position: relative; transform: rotate(-45deg); display: inline-block; margin: 5px; }
+        .heart::before, .heart::after { content: ""; width: 25px; height: 25px; background: #e74c3c; border-radius: 50%; position: absolute; }
+        .heart::before { top: -12px; left: 0; }
+        .heart::after { top: 0; left: 12px; }
+        
+        #score-box { font-weight: bold; text-transform: uppercase; font-size: 1.5rem; color: #fff; text-shadow: 2px 2px #000; }
+        #timer { font-size: 8rem; color: #f1c40f; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; font-weight: bold; z-index: 100; text-shadow: 0 0 20px #000; }
+        
+        #click-prompt { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 4000; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; text-align: center; }
+        .move-img { transform: scale(1.5); }
+        .congrats-img { max-width: 800px; height: auto; }
+        
+        /* 1. REMOVED STROKE/BORDER FROM GAMEPLAY IMAGE */
+        .gameplay-img { max-width: 900px; height: auto; border: none; outline: none; }
+        
+        @keyframes borderBlink {
+            0% { border-color: #333; }
+            50% { border-color: #f1c40f; box-shadow: 0 0 80px #f1c40f; }
+            100% { border-color: #333; }
+        }
+        .star-active-border { animation: borderBlink 0.8s infinite; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="click-prompt">
+            <img src="gameplay.png" class="gameplay-img">
+            <br>
+            <span style="font-size: 1.5rem; color: #aaa; margin-top: 20px;">CLICK TO START MISSION</span>
+        </div>
+        <div id="ui">
+            <div id="heart-container"></div>
+            <div id="score-box"><span id="status">LEVEL 1</span> | SCORE: <span id="score">0</span>/5</div>
+        </div>
+        <div id="timer"></div>
+        <canvas id="gameCanvas" width="1000" height="1000"></canvas>
+        <img id="rori-sprite" src="down.gif" alt="Rori">
+        
+        <img id="z-girl-gif" class="z-img" src="zombie_girl.gif">
+        <img id="z-man-gif" class="z-img" src="zombie_man.gif">
+        <img id="z-baby-gif" class="z-img" src="zombie_baby.gif">
+    </div>
+
+    <script>
+        const container = document.getElementById('game-container');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const roriImg = document.getElementById('rori-sprite');
+        const promptEl = document.getElementById('click-prompt');
+        const zGifs = { girl: document.getElementById('z-girl-gif'), man: document.getElementById('z-man-gif'), baby: document.getElementById('z-baby-gif') };
+        const scoreEl = document.getElementById('score'), heartContainer = document.getElementById('heart-container');
+        const timerEl = document.getElementById('timer'), statusEl = document.getElementById('status');
+
+        const maskCanvas = document.createElement('canvas');
+        maskCanvas.width = 1000; maskCanvas.height = 1000;
+        const mctx = maskCanvas.getContext('2d');
+
+        const sounds = {
+            bg: new Audio('Catch-Me.mp3'),
+            rabbit: new Audio('rabbit.mp3'),
+            ouch: new Audio('ouch.mp3'),
+            star: new Audio('star.mp3'),
+            girl: new Audio('zombie-girl.mp3'),
+            man: new Audio('ghost.mp3'),
+            baby: new Audio('baby.mp3')
+        };
+        sounds.bg.loop = true;
+        sounds.bg.volume = 0.5;
+        sounds.star.volume = 1.0; 
+
+        function playSFX(soundName) {
+            const s = sounds[soundName];
+            if (s) { s.currentTime = 0; s.play().catch(e => {}); }
+        }
+
+        let level = 1, score = 0, lives = 5, gamePhase = 'wait', countdown = 3, shakeTime = 0;
+        const rori = { x: 500, y: 500, moving: false, walkSpeed: 1.8, currentSpeed: 0, accel: 0.12, angle: 0, radius: 25 };
+        const lamp = { offset: 85, range: 210, captureRadius: 50 }; 
+        let rabbits = [], obstacles = [], zombies = [], magicParticles = [];
+        let star = null, starCountInLevel = 0, starAbilityTimer = 0;
+
+        const assets = {
+            rabbit: new Image(), bush: new Image(), tree: new Image(), tree2: new Image(),
+            land1: new Image(), land2: new Image(), land3: new Image(), land4: new Image(), land5: new Image(),
+            starImg: new Image(), moveImg: 'move.png', congratsImg: 'congrats.png'
+        };
+        assets.rabbit.src = 'rabbit.png'; assets.bush.src = 'bush.png'; assets.tree.src = 'tree.png'; assets.tree2.src = 'tree2.png';
+        assets.land1.src = 'land.jpg'; assets.land2.src = 'land2.jpg'; assets.land3.src = 'land3.jpg'; assets.land4.src = 'land4.jpg'; assets.land5.src = 'land5.jpg';
+        assets.starImg.src = 'star.gif';
+
+        function updateHearts() {
+            heartContainer.innerHTML = '';
+            for(let i=0; i<lives; i++) {
+                const h = document.createElement('div');
+                h.className = 'heart';
+                heartContainer.appendChild(h);
+            }
+        }
+
+        function checkCollision(nx, ny, radius) {
+            for (let o of obstacles) {
+                let dist = Math.sqrt((nx - o.x)**2 + (ny - o.y)**2);
+                if (dist < radius + o.hitRadius) return true;
+            }
+            return false;
+        }
+
+        function createMagicEffect(x, y, color = null) {
+            for (let i = 0; i < 20; i++) {
+                magicParticles.push({
+                    x: x, y: y, vx: (Math.random() - 0.5) * 12, vy: (Math.random() - 0.5) * 12,
+                    angle: Math.random() * Math.PI * 2, spin: (Math.random() - 0.5) * 0.3,
+                    life: 1.0, size: Math.random() * 8 + 2, color: color || `hsl(${Math.random() * 60 + 40}, 100%, 70%)`
+                });
+            }
+        }
+
+        function spawnStar() {
+            if (starCountInLevel >= 2) return;
+            star = { x: 100 + Math.random() * 800, y: 100 + Math.random() * 800, r: 15, timer: 600 };
+            starCountInLevel++;
+            container.classList.add('star-active-border');
+        }
+
+        promptEl.addEventListener('click', () => {
+            sounds.bg.play().catch(e => {});
+            if (gamePhase === 'wait') {
+                if (lives <= 0 || level > 5) { window.location.reload(); return; }
+                promptEl.style.display = 'none';
+                setupLevel(level);
+                startCountdown();
+            }
+        });
+
+        function setupLevel(lvl) {
+            score = 0; scoreEl.innerText = score;
+            rabbits = []; obstacles = []; zombies = []; magicParticles = [];
+            star = null; starCountInLevel = 0; starAbilityTimer = 0;
+            container.classList.remove('star-active-border');
+            Object.values(zGifs).forEach(el => { el.style.display = 'none'; sounds[el.id.split('-')[1]].pause(); });
+            updateHearts();
+            
+            statusEl.innerText = `LEVEL ${lvl}`;
+            rori.x = 500; rori.y = 500; rori.moving = false; rori.currentSpeed = 0;
+
+            const treeCount = lvl === 1 ? 1 : lvl === 2 ? 3 : 5;
+            for(let i=0; i<treeCount; i++) {
+                let tx = 150 + (Math.random() * 700), ty = 150 + (Math.random() * 700);
+                if(Math.sqrt((tx-500)**2 + (ty-500)**2) < 200) tx += 200;
+                let type = lvl >= 5 ? 'tree2' : (lvl === 4 && Math.random() > 0.5 ? 'tree2' : 'tree');
+                let sw = type === 'tree2' ? 180 : 140, sh = type === 'tree2' ? 230 : 180;
+                obstacles.push({ x: tx, y: ty, type, w: sw, h: sh, hitRadius: type === 'tree2' ? 70 : 55 });
+            }
+
+            for(let i=0; i<4; i++) {
+                let bx = 100 + Math.random()*800, by = 100 + Math.random()*800;
+                if(Math.sqrt((bx-500)**2 + (by-500)**2) < 180) by += 200;
+                let clusterSize = Math.floor(Math.random()*3)+1;
+                for(let j=0; j<clusterSize; j++) {
+                    obstacles.push({ x: bx + (j*35), y: by, type: 'bush', w: 70, h: 50, hitRadius: 25 });
+                }
+            }
+
+            for(let i=0; i<5; i++) {
+                let rx = 100 + Math.random()*800, ry = 100 + Math.random()*800;
+                rabbits.push({ x: rx, y: ry, isJumping: false, captured: false, animFrame: Math.random()*10, facingRight: Math.random() > 0.5, vx: 0, vy: 0, fleeSpeed: 1.2 });
+            }
+        }
+
+        function startCountdown() {
+            gamePhase = 'memorize';
+            countdown = 3;
+            timerEl.innerText = countdown;
+            const timerInt = setInterval(() => {
+                countdown--;
+                timerEl.innerText = countdown > 0 ? countdown : "";
+                if(countdown <= 0) { 
+                    clearInterval(timerInt); 
+                    if(level >= 3) spawnZ('girl', 'straight', 150, 350);
+                    if(level >= 4) spawnZ('man', 'random', 850, 650);
+                    if(level === 5) spawnZ('baby', 'stalker', 100, 100); 
+                    gamePhase = 'hunt'; 
+                    setTimeout(() => { if(gamePhase === 'hunt') spawnStar(); }, 4000);
+                }
+            }, 1000);
+        }
+
+        function spawnZ(type, behavior, x, y) {
+            let speed = (type === 'man') ? 0.4 : 1.3;
+            zGifs[type].style.display = 'block';
+            zombies.push({ x, y, type, behavior, vx: speed, vy: speed, state: 'idle', timer: 0, r: 30, element: zGifs[type] });
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (lives <= 0 || gamePhase !== 'hunt') return;
+            const rect = canvas.getBoundingClientRect();
+            rori.angle = Math.atan2((e.clientY - rect.top) - rori.y, (e.clientX - rect.left) - rori.x);
+            rori.moving = true;
+            let deg = rori.angle * (180 / Math.PI); if (deg < 0) deg += 360;
+            let src = (deg >= 45 && deg < 135) ? 'down.gif' : (deg >= 135 && deg < 225) ? 'left.gif' : (deg >= 225 && deg < 315) ? 'up.gif' : 'right.gif';
+            if (!roriImg.src.includes(src)) roriImg.src = src;
+        });
+
+        function update() {
+            if (lives <= 0 || gamePhase === 'win' || gamePhase === 'wait') return;
+
+            if (rori.moving) {
+                if (rori.currentSpeed < rori.walkSpeed) rori.currentSpeed += rori.accel;
+                let nx = rori.x + Math.cos(rori.angle) * rori.currentSpeed;
+                let ny = rori.y + Math.sin(rori.angle) * rori.currentSpeed;
+                if (!checkCollision(nx, ny, rori.radius) && nx > 50 && nx < 950 && ny > 50 && ny < 950) { rori.x = nx; rori.y = ny; } 
+                else { rori.moving = false; rori.currentSpeed = 0; }
+            }
+            
+            if (shakeTime > 0) shakeTime--;
+            if (starAbilityTimer > 0) starAbilityTimer--;
+
+            roriImg.style.left = rori.x + "px"; roriImg.style.top = rori.y + "px";
+            const lx = rori.x + Math.cos(rori.angle) * lamp.offset, ly = rori.y + Math.sin(rori.angle) * lamp.offset;
+
+            if (star) {
+                star.timer--;
+                if (star.timer <= 0) { star = null; container.classList.remove('star-active-border'); }
+                else if (Math.sqrt((lx - star.x)**2 + (ly - star.y)**2) < lamp.captureRadius) {
+                    playSFX('star');
+                    createMagicEffect(star.x, star.y, '#f1c40f');
+                    star = null; starAbilityTimer = 300;
+                    container.classList.remove('star-active-border');
+                }
+            }
+
+            zombies.forEach((z) => {
+                if (z.behavior === 'straight') { z.x += z.vx; if (z.x > 930 || z.x < 70) z.vx *= -1; }
+                else if (z.behavior === 'random') { z.x += z.vx; z.y += z.vy; if (z.x > 930 || z.x < 70) z.vx *= -1; if (z.y > 930 || z.y < 70) z.vy *= -1; }
+                else if (z.behavior === 'stalker') {
+                    if (Math.sqrt((lx-z.x)**2 + (ly-z.y)**2) < lamp.range) { z.state = 'hunting'; z.timer = 300; }
+                    if (z.state === 'hunting') {
+                        const a = Math.atan2(rori.y-z.y, rori.x-z.x);
+                        z.x += Math.cos(a)*1.1; z.y += Math.sin(a)*1.1;
+                        z.timer--; if(z.timer <= 0) z.state = 'idle';
+                    }
+                }
+                
+                let distToLight = Math.sqrt((lx-z.x)**2+(ly-z.y)**2);
+                let visible = (gamePhase === 'memorize' || starAbilityTimer > 0 || distToLight < lamp.range);
+                
+                if (visible && gamePhase === 'hunt' && starAbilityTimer <= 0) {
+                    if (sounds[z.type].paused) sounds[z.type].play().catch(e => {});
+                } else { sounds[z.type].pause(); sounds[z.type].currentTime = 0; }
+
+                z.element.style.display = visible ? 'block' : 'none';
+                z.element.style.left = z.x + "px";
+                z.element.style.top = (z.y + (z.type === 'man' ? Math.sin(Date.now()*0.005)*15 : 0)) + "px";
+                
+                if (z.type === 'baby') {
+                    let targetSrc = z.vx < 0 ? 'zombie_baby_L.gif' : 'zombie_baby.gif';
+                    if (!z.element.src.includes(targetSrc)) z.element.src = targetSrc;
+                    z.element.style.transform = `translate(-50%, -50%)`;
+                } else {
+                    let flip = z.vx < 0 ? -1 : 1;
+                    z.element.style.transform = `translate(-50%, -50%) scaleX(${flip})`;
+                }
+                z.element.style.opacity = z.type === 'man' ? 0.6 : 1.0;
+
+                if (Math.sqrt((rori.x-z.x)**2+(rori.y-z.y)**2) < rori.radius + 15) {
+                    playSFX('ouch');
+                    lives--; updateHearts(); 
+                    shakeTime = 25;
+                    z.x = 100 + Math.random()*800; z.y = 100 + Math.random()*800;
+                    if (lives <= 0) { 
+                        gamePhase = 'wait'; 
+                        Object.values(sounds).forEach(s => { s.pause(); s.currentTime = 0; });
+                        promptEl.style.display = 'flex'; 
+                        promptEl.innerHTML = "<span style='font-size: 3rem'>GAME OVER</span><br><span style='font-size: 1.5rem; color: #aaa;'>CLICK TO RESTART</span>"; 
+                    }
+                }
+            });
+
+            rabbits.forEach(r => {
+                if (r.captured) return;
+                const d = Math.sqrt((lx-r.x)**2+(ly-r.y)**2);
+                if (gamePhase === 'hunt' && d < lamp.range - 20) {
+                    r.isJumping = true; const a = Math.atan2(r.y-ly, r.x-lx);
+                    r.vx = Math.cos(a)*r.fleeSpeed; r.vy = Math.sin(a)*r.fleeSpeed; r.facingRight = r.vx > 0;
+                }
+                if (r.isJumping) {
+                    let nx = r.x + r.vx, ny = r.y + r.vy;
+                    if (checkCollision(nx, ny, 10) || nx < 50 || nx > 950 || ny < 50 || ny > 950) { r.vx *= -1; r.vy *= -1; r.facingRight = r.vx > 0; } 
+                    else { r.x = nx; r.y = ny; }
+                    r.vx *= 0.96; r.vy *= 0.96; r.animFrame += 0.2;
+                    if (Math.abs(r.vx) < 0.1) r.isJumping = false;
+                }
+                if (gamePhase === 'hunt' && d < lamp.captureRadius) {
+                    r.captured = true; score++; scoreEl.innerText = score;
+                    playSFX('rabbit');
+                    createMagicEffect(r.x, r.y);
+                    if (score >= 5) {
+                        gamePhase = 'wait';
+                        if (level < 5) {
+                            level++;
+                            promptEl.style.display = 'flex';
+                            promptEl.innerHTML = `<img src="${assets.moveImg}" class="move-img">`;
+                        } else {
+                            level = 6;
+                            promptEl.style.display = 'flex';
+                            promptEl.innerHTML = `<img src="${assets.congratsImg}" class="congrats-img">`;
+                        }
+                    }
+                }
+            });
+
+            for (let i = magicParticles.length - 1; i >= 0; i--) {
+                let p = magicParticles[i]; p.x += p.vx; p.y += p.vy; p.angle += p.spin; p.life -= 0.02;
+                if (p.life <= 0) magicParticles.splice(i, 1);
+            }
+        }
+
+        function draw() {
+            ctx.save(); 
+            if (shakeTime > 0) ctx.translate(Math.random()*20-10, Math.random()*20-10);
+            let bg = assets[`land${level > 5 ? 5 : level}`];
+            if (bg && bg.complete) {
+                if (level === 3 || level === 4) {
+                    const ts = 1000 / 3;
+                    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) ctx.drawImage(bg, c*ts, r*ts, ts, ts);
+                } else { ctx.drawImage(bg, 0, 0, 1000, 1000); }
+            }
+
+            obstacles.forEach(o => ctx.drawImage(assets[o.type], o.x - o.w/2, o.y - o.h/2, o.w, o.h));
+            const lx = rori.x + Math.cos(rori.angle) * lamp.offset, ly = rori.y + Math.sin(rori.angle) * lamp.offset;
+
+            rabbits.forEach(r => {
+                if (r.captured) return;
+                const d = Math.sqrt((lx-r.x)**2+(ly-r.y)**2);
+                if (gamePhase === 'memorize' || starAbilityTimer > 0 || (gamePhase === 'hunt' && d < lamp.range)) {
+                    ctx.save(); ctx.globalAlpha = 1.0;
+                    ctx.translate(r.x, r.y); if (r.facingRight) ctx.scale(-1, 1);
+                    let frame = Math.floor(r.animFrame) % 11;
+                    ctx.drawImage(assets.rabbit, frame*64, 0, 64, 64, -32, -32, 64, 64);
+                    ctx.restore();
+                }
+            });
+
+            if (gamePhase === 'hunt' && starAbilityTimer <= 0) {
+                mctx.clearRect(0, 0, 1000, 1000);
+                mctx.fillStyle = 'rgba(0,0,0,0.96)'; mctx.fillRect(0,0,1000,1000);
+                const grad = mctx.createRadialGradient(lx, ly, 0, lx, ly, lamp.range);
+                grad.addColorStop(0, 'rgba(0,0,0,1)'); grad.addColorStop(0.7, 'rgba(0,0,0,0.5)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+                mctx.globalCompositeOperation = 'destination-out';
+                mctx.fillStyle = grad; mctx.beginPath(); mctx.arc(lx, ly, lamp.range, 0, Math.PI*2); mctx.fill();
+                mctx.globalCompositeOperation = 'source-over';
+                ctx.drawImage(maskCanvas, 0, 0);
+            }
+
+            magicParticles.forEach(p => {
+                ctx.save(); ctx.globalAlpha = p.life; ctx.translate(p.x, p.y); ctx.rotate(p.angle); ctx.fillStyle = p.color;
+                ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size); ctx.restore();
+            });
+
+            if (star) ctx.drawImage(assets.starImg, star.x-15, star.y-15, 30, 30);
+            ctx.restore();
+            requestAnimationFrame(() => { update(); draw(); });
+        }
+
+        updateHearts();
+        draw();
+    </script>
+</body>
+</html>
