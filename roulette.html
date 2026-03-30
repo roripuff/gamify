@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NES Slot Panels - Pro Sidebar</title>
+    <style>
+        :root {
+            --item-width: 300px; 
+            --view-width: 600px;
+            --row-height: 120px;
+            --interface-gold: #f8b800;
+            --bg-pink: #f8c0c8;
+            --sidebar-width: 300px; /* Wider sidebar for big assets */
+        }
+
+        body {
+            background-color: #000;
+            color: white;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            background-image: url('gamebg.jpg');
+            background-size: cover;
+            background-position: center;
+        }
+
+        /* --- Persistent Confetti --- */
+        .confetti {
+            position: absolute;
+            width: 12px; height: 12px; z-index: 999;
+            top: -20px; opacity: 0.9;
+            animation: fall linear forwards;
+        }
+        @keyframes fall { to { transform: translateY(110vh) rotate(900deg); } }
+
+        /* --- Right Sidebar UI --- */
+        #ui-sidebar {
+            position: absolute; top: 20px; right: 20px;
+            display: flex; flex-direction: column; align-items: flex-end;
+            z-index: 100; pointer-events: none;
+        }
+
+        #music-toggle {
+            padding: 10px 15px; background: rgba(68, 68, 68, 0.8);
+            color: #fff; border: 3px solid #fff; cursor: pointer;
+            font-size: 14px; font-weight: bold; pointer-events: auto;
+            box-shadow: 4px 4px 0 #000;
+            margin-bottom: 30px;
+        }
+
+        /* Unified Container Widths */
+        #score-panel, #life-display {
+            width: var(--sidebar-width);
+            image-rendering: pixelated;
+        }
+
+        #score-panel {
+            height: 100px;
+            background: url('score.png') no-repeat center;
+            background-size: contain;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 5px; /* Brought closer to LIFE image */
+        }
+
+        #score-val {
+            font-size: 42px;
+            color: #fff;
+            text-shadow: 3px 3px #000;
+            margin-top: 8px; 
+        }
+
+        #life-display {
+            height: auto;
+            display: block;
+            /* width inherited from var(--sidebar-width) */
+        }
+
+        .pulse-warning { animation: pulse 0.5s infinite alternate; }
+        @keyframes pulse {
+            from { transform: scale(1); filter: brightness(1); }
+            to { transform: scale(1.03); filter: brightness(1.4); }
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* --- Game Window --- */
+        .game-window {
+            width: var(--view-width);
+            height: calc(var(--row-height) * 3);
+            border: 10px solid var(--interface-gold);
+            background-color: rgba(248, 192, 200, 0.9);
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 0 60px #000;
+            z-index: 20;
+        }
+
+        #center-overlay {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 110; pointer-events: none; text-align: center;
+            width: 95%;
+        }
+
+        #floating-box { font-size: 80px; font-weight: bold; color: #fff; text-shadow: 5px 5px #000; }
+
+        #game-over-img {
+            display: none;
+            max-width: 100%;
+            height: auto;
+            image-rendering: pixelated;
+            animation: blink 0.5s step-end infinite;
+        }
+
+        /* --- Controls --- */
+        .controls { margin-top: 40px; z-index: 60; }
+        .game-btn { 
+            padding: 20px 60px; font-size: 26px; 
+            background: #e4000f; color: white; border: 6px solid #fff; 
+            cursor: pointer; font-weight: bold; box-shadow: 6px 6px 0 #000; 
+            min-width: 250px;
+        }
+        .game-btn:disabled { background: #444; opacity: 0.5; }
+
+        #status-msg { margin-bottom: 20px; font-size: 32px; color: var(--interface-gold); text-shadow: 3px 3px #000; height: 40px; }
+        .win-flash { animation: flash 0.2s infinite; }
+        @keyframes flash { 0%, 100% { background-color: var(--bg-pink); } 50% { background-color: var(--interface-gold); } }
+
+        .row-container { height: var(--row-height); width: 100%; position: relative; overflow: hidden; border-bottom: 2px solid rgba(0,0,0,0.1); }
+        .strip { display: flex; position: absolute; top: 0; left: 0; height: 100%; width: 5000px; background: url('strips.png') repeat-x; background-size: calc(var(--item-width) * 3) auto; image-rendering: pixelated; }
+        #strip-0 { background-position-y: -12%; } #strip-1 { background-position-y: 50%; } #strip-2 { background-position-y: 112%; }
+    </style>
+</head>
+<body>
+
+    <div id="ui-sidebar">
+        <button id="music-toggle" onclick="toggleMusic()">MUSIC: ON</button>
+        <div id="score-panel"><span id="score-val">0000</span></div>
+        <img id="life-display" src="Life-03.png" alt="Life Counter">
+    </div>
+
+    <div id="status-msg">READY?</div>
+
+    <div class="game-window" id="screen">
+        <div id="center-overlay">
+            <div id="floating-box"></div>
+            <img id="game-over-img" src="gameover.png">
+        </div>
+        <div class="row-container"><div id="strip-0" class="strip"></div></div>
+        <div class="row-container"><div id="strip-1" class="strip"></div></div>
+        <div class="row-container"><div id="strip-2" class="strip"></div></div>
+    </div>
+
+    <div class="controls">
+        <button id="stop-btn" class="game-btn" onclick="handleStop()">STOP</button>
+        <button id="reset-btn" class="game-btn" onclick="resetGame()" style="display:none;">AGAIN</button>
+    </div>
+
+    <audio id="bg-music" src="playerzero.mp3" loop></audio>
+    <audio id="sfx-spin" src="spin.mp3" loop></audio>
+    <audio id="sfx-choose" src="choose.mp3"></audio>
+    <audio id="sfx-winner" src="winner.mp3"></audio>
+    <audio id="sfx-loose" src="loose.mp3"></audio>
+
+    <script>
+        const itemW = 300;
+        const centerX = 150;
+        const music = document.getElementById('bg-music');
+        const sfxSpin = document.getElementById('sfx-spin');
+        const sfxChoose = document.getElementById('sfx-choose');
+        const sfxWinner = document.getElementById('sfx-winner');
+        const sfxLoose = document.getElementById('sfx-loose');
+
+        music.volume = 0.3; // 30% Volume
+        sfxSpin.volume = 0.2;
+
+        let currentActiveRow = 0, isGameOver = false, results = [], highScore = 0, lives = 3;
+        let confettiInterval = null;
+
+        let strips = [
+            { id: 'strip-0', pos: 0, speed: -4, stopping: false, snapped: false, target: null },
+            { id: 'strip-1', pos: 0, speed: 6.5, stopping: false, snapped: false, target: null },
+            { id: 'strip-2', pos: 0, speed: -5, stopping: false, snapped: false, target: null }
+        ];
+
+        window.addEventListener('click', () => { if(music.paused && document.getElementById('music-toggle').innerText.includes("ON")) music.play(); }, {once: true});
+
+        function toggleMusic() {
+            if (music.paused) { music.play(); document.getElementById('music-toggle').innerText = "MUSIC: ON"; } 
+            else { music.pause(); document.getElementById('music-toggle').innerText = "MUSIC: OFF"; }
+        }
+
+        function spawnConfettiBatch() {
+            for (let i = 0; i < 15; i++) {
+                const conf = document.createElement('div');
+                conf.className = 'confetti';
+                conf.style.left = Math.random() * 100 + 'vw';
+                conf.style.backgroundColor = ['#f8b800', '#ff4444', '#fff', '#e4000f', '#00ff00'][Math.floor(Math.random() * 5)];
+                conf.style.animationDuration = (Math.random() * 2 + 1.5) + 's';
+                document.body.appendChild(conf);
+                setTimeout(() => conf.remove(), 4000);
+            }
+        }
+
+        function startConfettiLoop() {
+            if (confettiInterval) return;
+            spawnConfettiBatch();
+            confettiInterval = setInterval(spawnConfettiBatch, 600);
+        }
+
+        function stopConfettiLoop() {
+            clearInterval(confettiInterval);
+            confettiInterval = null;
+            document.querySelectorAll('.confetti').forEach(c => c.remove());
+        }
+
+        function update() {
+            strips.forEach((s) => {
+                const el = document.getElementById(s.id);
+                if (s.stopping && !s.snapped) {
+                    s.speed *= 0.96; 
+                    if (Math.abs(s.speed) < 2.5 && s.target === null) s.target = Math.round((s.pos - centerX) / itemW) * itemW + centerX;
+                    if (s.target !== null) {
+                        s.speed = (s.speed + (s.target - s.pos) * 0.15) * 0.75;
+                        if (Math.abs(s.target - s.pos) < 0.1 && Math.abs(s.speed) < 0.1) {
+                            s.pos = s.target; s.speed = 0; s.snapped = true;
+                            sfxChoose.currentTime = 0; sfxChoose.play();
+                            onRowSettled();
+                        }
+                    }
+                }
+                s.pos += s.speed;
+                if (s.pos > 0) s.pos -= 900; if (s.pos < -900) s.pos += 900;
+                el.style.transform = `translateX(${s.pos}px)`;
+            });
+            if (!isGameOver) requestAnimationFrame(update);
+        }
+
+        function handleStop() {
+            if (sfxSpin.paused) sfxSpin.play();
+            if (currentActiveRow < 3 && !strips[currentActiveRow].stopping) {
+                strips[currentActiveRow].stopping = true;
+                document.getElementById('stop-btn').disabled = true;
+            }
+        }
+
+        function onRowSettled() {
+            results.push(Math.abs(Math.round((strips[currentActiveRow].pos - centerX) / itemW)) % 3);
+            currentActiveRow++;
+            if (currentActiveRow < 3) document.getElementById('stop-btn').disabled = false;
+            else checkResult();
+        }
+
+        function checkResult() {
+            isGameOver = true;
+            sfxSpin.pause();
+            const win = results.every(val => val === results[0]);
+            lives--;
+            updateLifeUI();
+
+            const resetBtn = document.getElementById('reset-btn');
+
+            if (win) {
+                let p = [2, 3, 5][results[0]];
+                highScore += p;
+                document.getElementById('score-val').innerText = highScore.toString().padStart(4, '0');
+                document.getElementById('floating-box').innerHTML = `+${p} POINTS`;
+                document.getElementById('screen').classList.add('win-flash');
+                sfxWinner.play();
+                startConfettiLoop();
+            } else {
+                document.getElementById('status-msg').innerText = "MISSED!";
+                sfxLoose.play();
+            }
+
+            // Logic for button text change
+            if (lives <= 0) {
+                document.getElementById('floating-box').innerHTML = ""; 
+                document.getElementById('game-over-img').style.display = 'block';
+                resetBtn.innerText = "NEW GAME"; // Show only on Game Over
+                startConfettiLoop();
+            } else {
+                resetBtn.innerText = "AGAIN"; // Default for trial rounds
+            }
+
+            document.getElementById('stop-btn').style.display = 'none';
+            resetBtn.style.display = 'inline-block';
+        }
+
+        function updateLifeUI() {
+            const lifeImg = document.getElementById('life-display');
+            lifeImg.classList.remove('pulse-warning');
+            if (lives === 3) lifeImg.src = "Life-03.png";
+            else if (lives === 2) lifeImg.src = "Life-02.png";
+            else if (lives === 1) { 
+                lifeImg.src = "Life-01.png"; 
+                lifeImg.classList.add('pulse-warning'); 
+            }
+            else lifeImg.style.visibility = "hidden";
+        }
+
+        function resetGame() {
+            stopConfettiLoop();
+            if (lives <= 0) {
+                lives = 3; highScore = 0;
+                document.getElementById('score-val').innerText = "0000";
+                document.getElementById('life-display').style.visibility = "visible";
+                updateLifeUI();
+                document.getElementById('game-over-img').style.display = 'none';
+            }
+            isGameOver = false; currentActiveRow = 0; results = [];
+            document.getElementById('screen').className = 'game-window';
+            document.getElementById('floating-box').innerHTML = '';
+            document.getElementById('status-msg').innerText = "READY?";
+            document.getElementById('stop-btn').style.display = 'inline-block';
+            document.getElementById('stop-btn').disabled = false;
+            document.getElementById('reset-btn').style.display = 'none';
+            strips.forEach((s, i) => { s.stopping = false; s.snapped = false; s.target = null; s.speed = [ -4, 6.5, -5 ][i]; });
+            sfxSpin.play();
+            update();
+        }
+
+        update();
+    </script>
+</body>
+</html>
