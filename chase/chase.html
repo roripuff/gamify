@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Rori vs Elmyra: Smooth Start</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: url('browserbg.jpg') no-repeat center center fixed; 
+            background-size: cover;
+            font-family: 'Segoe UI', sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            color: white; 
+            overflow: hidden; 
+        }
+
+        #game-container { 
+            position: relative; 
+            width: 1200px; 
+            height: 600px; 
+            border: 6px solid rgba(78, 204, 163, 0.8); 
+            box-shadow: 0 0 50px rgba(0,0,0,0.9);
+            overflow: hidden; 
+            background: #000; 
+        }
+
+        /* Instruction Overlay with Smooth Fade */
+        #instruction-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+            opacity: 1;
+            transition: opacity 0.8s ease-out; /* The Smooth Fade */
+        }
+        
+        #instruct-img {
+            transform: scale(0.8);
+            image-rendering: pixelated;
+            filter: drop-shadow(0 0 15px #000);
+        }
+
+        #background-layer { position: absolute; top: 0; left: 0; width: 8000px; height: 100%; background: url('BG.jpg') repeat-x; background-size: contain; filter: blur(6px) brightness(0.5); transition: filter 0.1s ease-out; z-index: 1; }
+        #flash-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #fff; opacity: 0; pointer-events: none; z-index: 100; }
+        canvas { display: block; position: absolute; top: 0; left: 0; z-index: 5; }
+        
+        .sprite { position: absolute; height: auto; pointer-events: none; transform-origin: bottom center; }
+        #rori-sprite { z-index: 9; width: 200px; }
+        #rori-sprite.victory { width: 300px !important; z-index: 110; margin-left: -50px; }
+        #heart-sprite { z-index: 10; width: 140px; opacity: 0.8; } 
+        #elmyra-sprite { z-index: 15; width: 230px; } 
+
+        #splash-screen {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 150;
+            display: none;
+            pointer-events: none;
+            image-rendering: pixelated; 
+            filter: drop-shadow(0 0 15px #000);
+        }
+
+        #ui { position: absolute; top: 15px; width: 100%; text-align: center; pointer-events: none; z-index: 120; }
+        .stat { display: inline-block; margin: 0 25px; font-weight: 900; color: #4ecca3; font-size: 22px; text-transform: uppercase; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="instruction-overlay">
+        <img id="instruct-img" src="instruct.png">
+    </div>
+
+    <div id="background-layer"></div>
+    <div id="flash-overlay"></div>
+    <div id="ui">
+        <div id="lvl" class="stat">LEVEL: 1</div>
+        <div id="timer" class="stat">TIME: 25s</div>
+        <div id="status" class="stat" style="color: #ff9f43;">STATUS: CHASE</div>
+    </div>
+    
+    <img id="splash-screen" src="" alt="Game Splash">
+    <img id="rori-sprite" class="sprite" src="rori_chase.gif">
+    <img id="heart-sprite" class="sprite" src="heart.gif">
+    <img id="elmyra-sprite" class="sprite" src="chaser.gif">
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<audio id="bgMusic" loop><source src="chase.mp3" type="audio/mpeg"></audio>
+<audio id="sfxLightning"><source src="lightning.mp3" type="audio/mpeg"></audio>
+<audio id="sfxFailure"><source src="failure.mp3" type="audio/mpeg"></audio>
+<audio id="sfxSuccess"><source src="success.mp3" type="audio/mpeg"></audio>
+<audio id="sfxEnding"><source src="ending.mp3" type="audio/mpeg"></audio>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const bgLayer = document.getElementById('background-layer');
+const flashOverlay = document.getElementById('flash-overlay');
+const splashImg = document.getElementById('splash-screen');
+const instructOverlay = document.getElementById('instruction-overlay');
+const bgMusic = document.getElementById('bgMusic');
+const sfxLightning = document.getElementById('sfxLightning');
+const sfxFailure = document.getElementById('sfxFailure');
+const sfxSuccess = document.getElementById('sfxSuccess');
+const sfxEnding = document.getElementById('sfxEnding');
+const ctx = canvas.getContext('2d');
+const roriImg = document.getElementById('rori-sprite');
+const elmyraImg = document.getElementById('elmyra-sprite');
+const heartImg = document.getElementById('heart-sprite');
+
+const platformImg = new Image();
+platformImg.src = 'platform.png';
+let platPattern;
+platformImg.onload = () => { platPattern = ctx.createPattern(platformImg, 'repeat-x'); };
+
+canvas.width = 1200; canvas.height = 600;
+
+let currentLevel = 1, gameActive = false, levelCleared = false, showingInstructions = true, timeLeft = 25, worldWidth = 2000; 
+let timerInterval, lightningTimeout, rori, elmyra, platforms = [], cameraX = 0;
+let roriHistory = [], playbackPath = [], playbackIndex = 0;
+let isSmoothingToPath = false, roriIdleTimer = 0;
+
+const RORI_RUN = "rori_chase.gif", RORI_STOP = "stopping.gif", RORI_WIN = "victory_pose.gif";
+
+function scheduleLightning() {
+    clearTimeout(lightningTimeout); 
+    if (!gameActive || levelCleared) return;
+    let nextStrike = 3000 + (Math.random() * 5000); 
+    lightningTimeout = setTimeout(() => {
+        if (!gameActive || levelCleared) return;
+        flashOverlay.style.opacity = "0.8";
+        bgLayer.style.filter = "blur(0px) brightness(1.8)";
+        sfxLightning.currentTime = 0;
+        sfxLightning.play().catch(e => {});
+        setTimeout(() => {
+            flashOverlay.style.opacity = "0";
+            bgLayer.style.filter = "blur(6px) brightness(0.5)";
+            scheduleLightning();
+        }, 120);
+    }, nextStrike);
+}
+
+const keys = {};
+
+function triggerWin() {
+    if (!gameActive || levelCleared) return;
+    timeLeft = 0; levelCleared = true; gameActive = false;
+    bgMusic.pause(); clearTimeout(lightningTimeout); 
+    roriImg.src = RORI_WIN; roriImg.classList.add('victory'); 
+    
+    splashImg.style.display = "block";
+    if (currentLevel < 3) {
+        splashImg.src = "splash_go.png";
+        sfxSuccess.play().catch(e => {});
+        currentLevel++;
+    } else {
+        splashImg.src = "splash_win.png";
+        sfxEnding.play().catch(e => {});
+        currentLevel = 4; 
+    }
+}
+
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if (e.code === 'Enter') {
+        if (showingInstructions) {
+            showingInstructions = false;
+            instructOverlay.style.opacity = "0"; // Trigger CSS transition
+            instructOverlay.style.pointerEvents = "none";
+            // Small delay to allow the fade before the AI starts
+            setTimeout(() => {
+                instructOverlay.style.display = "none";
+                startLevel(); 
+            }, 800);
+        } else if (!gameActive || levelCleared) {
+            if (currentLevel > 3) currentLevel = 1;
+            startLevel();
+        }
+    }
+    if (e.key === "-" || e.code === "Minus") triggerWin();
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+function startLevel() {
+    gameActive = true; levelCleared = false; timeLeft = 25 + (currentLevel * 5);
+    worldWidth = 2000 + ((currentLevel - 1) * 1200);
+    splashImg.style.display = "none";
+    [sfxFailure, sfxSuccess, sfxEnding].forEach(s => { s.pause(); s.currentTime = 0; });
+    
+    document.getElementById('lvl').innerText = `LEVEL: ${currentLevel > 3 ? 3 : currentLevel}/3`;
+    document.getElementById('status').innerText = "STATUS: CHASE";
+    bgMusic.currentTime = 0; bgMusic.play().catch(e => {});
+    
+    roriImg.src = RORI_RUN; roriImg.classList.remove('victory'); roriImg.style.display = "block";
+    elmyraImg.src = "chaser.gif"; elmyraImg.style.transform = "";
+    roriHistory = []; playbackPath = []; isSmoothingToPath = false; roriIdleTimer = 0;
+
+    platforms = [{ x: 0, y: 550, w: worldWidth, h: 50, vx: 0, range: 0, originalX: 0, isGhost: false }]; 
+    let currentX = 300;
+    while (currentX < worldWidth - 400) {
+        let randW = 150 + Math.random() * 300; 
+        let randY = 180 + Math.random() * 250; 
+        let vx = (currentLevel >= 2 && Math.random() > 0.6) ? 0.008 + Math.random() * 0.008 : 0;
+        let isGhost = (currentLevel >= 3 && Math.random() > 0.7);
+
+        platforms.push({ 
+            x: currentX, y: randY, w: randW, h: 30, vx: vx, range: 100, originalX: currentX, moveTimer: Math.random() * 100,
+            isGhost: isGhost, ghostState: 'solid', stateTimer: 10000, opacity: 1, glow: 0
+        });
+        currentX += randW + (150 + Math.random() * 200); 
+    }
+
+    rori = { x: 100, y: 350, w: 60, h: 160, dx: 0, dy: 0, speed: 9.5, jump: -17, grounded: false, facing: 1 };
+    elmyra = { x: worldWidth - 400, y: 250, w: 120, h: 120, dx: 0, dy: 0, speed: 1.8 + (currentLevel * 0.5), jump: -14, grounded: false, facing: -1, lastJumpTime: 0, jumpCooldown: 1200 };
+    
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        if (gameActive) {
+            timeLeft--; document.getElementById('timer').innerText = `TIME: ${timeLeft}s`;
+            if (timeLeft <= 0) triggerWin();
+        }
+    }, 1000);
+    scheduleLightning(); 
+}
+
+function update() {
+    if (!gameActive || showingInstructions) return;
+
+    let isMoving = false;
+    if (keys['ArrowLeft'] || keys['KeyA']) { rori.dx = -rori.speed; rori.facing = -1; isMoving = true; }
+    else if (keys['ArrowRight'] || keys['KeyD']) { rori.dx = rori.speed; rori.facing = 1; isMoving = true; }
+    else { rori.dx *= 0.85; }
+    if ((keys['ArrowUp'] || keys['Space'] || keys['KeyW']) && rori.grounded) { rori.dy = rori.jump; rori.grounded = false; }
+    
+    let roriNext = (isMoving || !rori.grounded) ? RORI_RUN : RORI_STOP;
+    if (roriImg.src.indexOf(roriNext) === -1) roriImg.src = roriNext;
+    roriHistory.push({x: rori.x, y: rori.y});
+    if (roriHistory.length > 1000) roriHistory.shift();
+
+    platforms.forEach(p => {
+        if (p.vx !== 0) { let oldX = p.x; p.moveTimer += p.vx; p.x = p.originalX + Math.sin(p.moveTimer) * p.range; p.lastDeltaX = p.x - oldX; }
+        if (p.isGhost) {
+            p.stateTimer -= 16.6;
+            if (p.stateTimer <= 0) {
+                if (p.ghostState === 'solid') { p.ghostState = 'warning'; p.stateTimer = 500; }
+                else if (p.ghostState === 'warning') { p.ghostState = 'fadeout'; p.stateTimer = 2000; }
+                else if (p.ghostState === 'fadeout') { p.ghostState = 'gone'; p.stateTimer = 3000 + Math.random() * 2000; }
+                else if (p.ghostState === 'gone') { p.ghostState = 'fadein'; p.stateTimer = 1000; }
+                else { p.ghostState = 'solid'; p.stateTimer = 10000; }
+            }
+            if (p.ghostState === 'solid') { p.opacity = 1; p.glow = 0; }
+            else if (p.ghostState === 'warning') { p.opacity = 1; p.glow = (500 - p.stateTimer) / 500; }
+            else if (p.ghostState === 'fadeout') { p.opacity = p.stateTimer / 2000; p.glow = p.opacity; }
+            else if (p.ghostState === 'gone') { p.opacity = 0; p.glow = 0; }
+            else { p.opacity = (1000 - p.stateTimer) / 1000; p.glow = 0; }
+        }
+    });
+
+    if (Math.abs(rori.dx) < 0.1 && rori.y < 450 && !isSmoothingToPath && playbackPath.length === 0) {
+        roriIdleTimer++;
+        if (roriIdleTimer > 150) { playbackPath = [...roriHistory]; isSmoothingToPath = true; roriIdleTimer = 0; document.getElementById('status').innerText = "STATUS: MIMICRY"; }
+    } else { roriIdleTimer = 0; }
+
+    if (!isSmoothingToPath && playbackPath.length === 0) {
+        document.getElementById('status').innerText = "STATUS: CHASE";
+        let moveDir = (rori.x < elmyra.x) ? -elmyra.speed : elmyra.speed;
+        elmyra.dx += (moveDir - elmyra.dx) * 0.1;
+        elmyra.facing = (elmyra.dx > 0) ? 1 : -1;
+        if (elmyra.grounded && (rori.y < elmyra.y - 80 || Math.random() < 0.01)) {
+            if (Date.now() - elmyra.lastJumpTime > elmyra.jumpCooldown) { elmyra.dy = elmyra.jump; elmyra.grounded = false; elmyra.lastJumpTime = Date.now(); }
+        }
+    }
+
+    [rori, elmyra].forEach(ent => {
+        if (ent === elmyra && (playbackPath.length > 0 || isSmoothingToPath)) return;
+        ent.dy += 0.55; ent.x += ent.dx; ent.y += ent.dy; ent.grounded = false;
+        platforms.forEach(p => { 
+            let alpha = p.isGhost ? p.opacity : 1;
+            if (alpha > 0.5 && ent.dy >= 0 && ent.y + ent.h >= p.y && ent.y + ent.h <= p.y + p.h + 20 && ent.x + ent.w > p.x && ent.x < p.x + p.w) { 
+                ent.y = p.y - ent.h; ent.dy = 0; ent.grounded = true; ent.x += (p.lastDeltaX || 0); 
+            }
+        });
+        if (ent.x < 0) ent.x = 0; if (ent.x + ent.w > worldWidth) ent.x = worldWidth - ent.w;
+    });
+
+    if (isSmoothingToPath) {
+        let target = playbackPath[0], dx = target.x - elmyra.x, dy = (target.y + (rori.h - elmyra.h)) - elmyra.y, dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > 10) { elmyra.x += (dx/dist) * (elmyra.speed * 1.8); elmyra.y += (dy/dist) * (elmyra.speed * 1.8); elmyra.facing = (dx > 0) ? 1 : -1; }
+        else { isSmoothingToPath = false; playbackIndex = 0; }
+    } else if (playbackPath.length > 0) {
+        playbackIndex += 1.8; let idx = Math.floor(playbackIndex);
+        if (idx < playbackPath.length) { let prevX = elmyra.x; elmyra.x = playbackPath[idx].x; elmyra.y = playbackPath[idx].y + (rori.h - elmyra.h); elmyra.facing = (elmyra.x >= prevX) ? 1 : -1; }
+        else { playbackPath = []; playbackIndex = 0; }
+    }
+
+    cameraX = Math.max(0, Math.min(rori.x - 500, worldWidth - 1200));
+
+    if (Math.abs((rori.x + rori.w/2) - (elmyra.x + elmyra.w/2)) < 60 && Math.abs((rori.y + rori.h/2) - (elmyra.y + elmyra.h/2)) < 80) {
+        gameActive = false; bgMusic.pause(); clearTimeout(lightningTimeout);
+        sfxFailure.play().catch(e => {}); 
+        splashImg.src = "splash_lost.png"; splashImg.style.display = "block";
+        roriImg.style.display = "none"; elmyraImg.src = "caught.gif"; elmyraImg.style.transform = "scale(1.4, 1.4)"; 
+        let floorY = 550 - elmyra.h; platforms.forEach(p => { if (elmyra.x + elmyra.w > p.x && elmyra.x < p.x + p.w && elmyra.y < p.y) floorY = p.y - elmyra.h; });
+        elmyra.y = floorY;
+    }
+}
+
+function draw() {
+    update();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    if (!showingInstructions && rori && elmyra) {
+        bgLayer.style.transform = `translateX(${-cameraX * 0.25}px)`;
+        roriImg.style.left = (rori.x - cameraX - 70) + "px"; roriImg.style.top = (rori.y + rori.h - roriImg.offsetHeight) + "px"; 
+        if (!levelCleared) roriImg.style.transform = `scaleX(${rori.facing})`;
+
+        elmyraImg.style.left = (elmyra.x - cameraX - 85) + "px"; elmyraImg.style.top = (elmyra.y + elmyra.h - elmyraImg.offsetHeight) + "px";
+        if(gameActive && !levelCleared) {
+            elmyraImg.style.transform = (elmyra.facing === 1) ? `scaleX(-1)` : `scaleX(1)`;
+            elmyraImg.style.filter = (playbackPath.length > 0 || isSmoothingToPath) ? "hue-rotate(160deg) brightness(1.3) drop-shadow(0 0 10px #00f)" : "none";
+        }
+        heartImg.style.left = (elmyra.x - cameraX + ((elmyra.facing === 1) ? -120 : 80)) + "px";
+        heartImg.style.top = (elmyra.y - 250) + "px"; heartImg.style.transform = (elmyra.facing === 1) ? `scaleX(-1)` : `scaleX(1)`;
+        
+        ctx.save(); 
+        ctx.translate(-cameraX, 0);
+        platforms.forEach(p => { 
+            if (!p.isGhost || p.opacity > 0) {
+                ctx.globalAlpha = p.opacity;
+                ctx.save();
+                ctx.translate(p.x, p.y); 
+                if (platPattern) { ctx.fillStyle = platPattern; ctx.fillRect(0, 0, p.w, p.h); }
+                else { ctx.fillStyle = '#1e272e'; ctx.fillRect(0, 0, p.w, p.h); }
+                if (p.isGhost && p.glow > 0) { ctx.globalAlpha = p.glow * 0.7; ctx.fillStyle = "white"; ctx.fillRect(0, 0, p.w, p.h); }
+                ctx.restore();
+            }
+        });
+        ctx.restore();
+    }
+    requestAnimationFrame(draw);
+}
+
+// Data init
+rori = { x: 0, y: 0, w: 0, h: 0 };
+elmyra = { x: 0, y: 0, w: 0, h: 0 };
+draw();
+</script>
+</body>
+</html>
