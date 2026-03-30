@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>3D Music Explorer - Interactive Links</title>
+    <title>3D Gamify Explorer</title>
     <style>
         :root {
             --bg-overlay: rgba(5, 5, 5, 0.7);
@@ -140,6 +140,7 @@
             font-size: 0.75rem;
             opacity: 0.5;
             letter-spacing: 1px;
+            text-transform: uppercase;
         }
     </style>
 </head>
@@ -152,18 +153,48 @@
     <div class="info-panel">
         <h2 id="album-title"></h2>
         <p id="album-artist"></p>
-        <div class="hint">Tap active album to enter website</div>
+        <div class="hint">Tap active image to enter</div>
     </div>
 
     <audio id="musicPlayer"></audio>
 
     <script>
         const albumData = [
-            { title: "ROULETTE", artist: "Perfect Matches", cover: "1choose.png", music: "playerzero.mp3", url: "roulette.html" },
-            { title: "CHIBI ATHLETICS", artist: "Track& Field Challenge", cover: "2run.png", music: "track_field.mp3", url: "Olympics.html" },
-            { title: "CYBER CHIBI", artist: "Data Fall", cover: "3fall.png", music: "raindrops.mp3", url: "Gesture.html" },
-            { title: "THE DETERMINED HUG", artist: "Stormchaser's Pursuit", cover: "4chase.png", music: "chase.mp3", url: "chase.html" },
-            { title: "GARDEN OF GHOULS", artist: "Chase the Rabbits", cover: "5light.png", music: "Catch-Me.mp3", url: "Light.html" }
+            { 
+                title: "ROULETTE", 
+                artist: "Perfect Matches", 
+                cover: "1choose.png", 
+                music: "playerzero.mp3", 
+                url: "https://roripuff.github.io/gamify/choose/roulette.html" 
+            },
+            { 
+                title: "CHIBI ATHLETICS", 
+                artist: "Track& Field Challenge", 
+                cover: "2run.png", 
+                music: "track_field.mp3", 
+                url: "https://roripuff.github.io/gamify/run/Olympics.html" 
+            },
+            { 
+                title: "CYBER CHIBI", 
+                artist: "Data Fall", 
+                cover: "3fall.png", 
+                music: "raindrops.mp3", 
+                url: "https://roripuff.github.io/gamify/letters/Gesture.html" 
+            },
+            { 
+                title: "THE DETERMINED HUG", 
+                artist: "Stormchaser's Pursuit", 
+                cover: "4chase.png", 
+                music: "chase.mp3", 
+                url: "https://roripuff.github.io/gamify/chase/chase.html" 
+            },
+            { 
+                title: "GARDEN OF GHOULS", 
+                artist: "Chase the Rabbits", 
+                cover: "5light.png", 
+                music: "Catch-Me.mp3", 
+                url: "https://roripuff.github.io/gamify/light/Light.html" 
+            }
         ];
 
         const carousel = document.getElementById('carousel');
@@ -184,10 +215,8 @@
             
             card.addEventListener('click', () => {
                 if (index === currentIndex) {
-                    // If already active, open the website
                     window.location.href = album.url;
                 } else {
-                    // Otherwise, just navigate to it
                     navigateTo(index);
                 }
             });
