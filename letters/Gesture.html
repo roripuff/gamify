@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Number Typer: Chibi Data Fall</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #020617; font-family: 'Courier New', monospace; color: #f8fafc; }
+        
+        #start-screen {
+            position: fixed; inset: 0; background: rgba(2, 6, 23, 0.9);
+            display: flex; flex-direction: column; justify-content: center;
+            align-items: center; z-index: 200;
+        }
+        #instructions-img { max-width: 90%; max-height: 75vh; margin-bottom: 20px; }
+        
+        .start-btn { 
+            background: #3b82f6; border: none; padding: 20px 50px; 
+            color: white; border-radius: 8px; cursor: pointer; 
+            font-size: 1.8em; font-weight: bold; transition: 0.3s;
+            text-transform: uppercase; letter-spacing: 2px;
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+        }
+        .start-btn:disabled { background: #475569; cursor: wait; }
+        .start-btn:hover:not(:disabled) { background: #2563eb; transform: scale(1.05); box-shadow: 0 0 25px #3b82f6; }
+
+        #game-bg {
+            position: fixed; inset: 0;
+            background: url('BG.jpg') no-repeat center center;
+            background-size: cover; filter: brightness(0.35) blur(4px); z-index: -1;
+        }
+        
+        #input-display {
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.9); padding: 12px 40px;
+            border: 3px solid #3b82f6; border-radius: 50px;
+            font-size: 2.5em; color: #60a5fa; min-width: 120px; text-align: center;
+            box-shadow: 0 0 30px rgba(59, 130, 246, 0.3); z-index: 20;
+        }
+        
+        #game-over { 
+            position: fixed; inset: 0; 
+            background: radial-gradient(circle, rgba(2, 6, 23, 0.7) 0%, rgba(2, 6, 23, 0.9) 100%);
+            display: none; flex-direction: column; justify-content: center; 
+            align-items: center; z-index: 80; 
+        }
+
+        /* Fixed Scores to Top */
+        #final-score-canvas { 
+            position: absolute; top: 50px; left: 50%; transform: translateX(-50%);
+            max-width: 95vw; display: block; 
+        }
+
+        #gameover-img { max-width: 90%; max-height: 60vh; margin-bottom: 30px; z-index: 10; }
+        
+        .retry-btn { 
+            background: #ef4444; border: none; padding: 20px 40px; 
+            color: white; border-radius: 8px; cursor: pointer; 
+            font-size: 1.6em; font-weight: bold; transition: 0.3s;
+            text-transform: uppercase; letter-spacing: 1px;
+            z-index: 20;
+        }
+        .retry-btn:hover { background: #dc2626; transform: scale(1.05); box-shadow: 0 0 20px #ef4444; }
+
+        canvas#gameCanvas { display: block; position: fixed; top: 0; left: 0; z-index: 100; pointer-events: none; }
+        #speed-alert {
+            position: fixed; top: 150px; left: 50%; transform: translateX(-50%);
+            color: #fbbf24; font-weight: bold; font-size: 1.2em; opacity: 0; transition: opacity 0.5s;
+        }
+
+        #glitch-overlay {
+            position: fixed; inset: 0; background: rgba(255, 0, 0, 0);
+            pointer-events: none; z-index: 150; transition: background 0.1s;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="glitch-overlay"></div>
+
+    <div id="start-screen">
+        <img src="instructions.png" id="instructions-img" alt="Instructions">
+        <button id="main-start-btn" class="start-btn" onclick="startGame()">LOADING SYSTEM...</button>
+    </div>
+
+    <div id="game-bg"></div>
+    <div id="speed-alert">SPEED INCREASING...</div>
+    <div id="input-display">_</div>
+
+    <div id="game-over">
+        <canvas id="final-score-canvas" width="800" height="150"></canvas>
+        <img src="gameover.png" id="gameover-img" alt="Game Over">
+        <button class="retry-btn" onclick="location.reload()" style="pointer-events: auto;">SYSTEM OVERLOAD - REBOOT</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const inputDisplay = document.getElementById('input-display');
+    const speedAlert = document.getElementById('speed-alert');
+    const glitchOverlay = document.getElementById('glitch-overlay');
+    const startBtn = document.getElementById('main-start-btn');
+    const finalScoreCanvas = document.getElementById('final-score-canvas');
+    const fsCtx = finalScoreCanvas.getContext('2d');
+
+    let assetsLoaded = 0;
+    const totalAssets = 38; 
+    function assetLoaded() {
+        assetsLoaded++;
+        if (assetsLoaded >= totalAssets) {
+            startBtn.innerText = "START CHIBI DATA FALL";
+            startBtn.disabled = false;
+        }
+    }
+
+    const roriFloatImg = new Image(); roriFloatImg.src = 'rori_float.png'; roriFloatImg.onload = assetLoaded;
+    const roriSwingImg = new Image(); roriSwingImg.src = 'rori_swing.png'; roriSwingImg.onload = assetLoaded;
+    
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const letterImages = {};
+    const numberImages = {};
+    
+    for (let char of alphabet) { 
+        const img = new Image(); img.src = `${char}.jpg`; 
+        img.onload = assetLoaded; img.onerror = assetLoaded;
+        letterImages[char] = img; 
+    }
+    for (let i = 0; i <= 9; i++) { 
+        const img = new Image(); img.src = `${i}.jpg`; 
+        img.onload = assetLoaded; img.onerror = assetLoaded;
+        numberImages[i] = img; 
+    }
+
+    const dictionary = ["ACE", "ACT", "ADD", "AGE", "AGO", "AID", "AIM", "AIR", "ALL", "AND", "ANY", "APE", "APT", "ARC", "ARE", "ARK", "ARM", "ART", "ASH", "ASK", "ATE", "AWE", "AXE", "BAD", "BAG", "BAN", "BAR", "BAT", "BAY", "BED", "BEE", "BEG", "BET", "BIB", "BID", "BIG", "BIN", "BIT", "BOA", "BOB", "BOG", "BOO", "BOW", "BOX", "BOY", "BUD", "BUG", "BUM", "BUN", "BUS", "BUT", "BUY", "BYE", "CAB", "CAN", "CAP", "CAR", "CAT", "CAW", "COB", "COG", "CON", "COO", "COP", "COT", "COW", "COY", "CRY", "CUB", "CUE", "CUP", "CUT", "DAB", "DAD", "DAM", "DAN", "DAY", "DEN", "DEW", "DID", "DIE", "DIG", "DIM", "DIN", "DIP", "DOG", "DOT", "DRY", "DUB", "DUE", "DUG", "DYE", "EAR", "EAT", "EBB", "EGG", "EGO", "ELF", "ELK", "ELM", "END", "ERA", "EVE", "EYE", "FAB", "FAD", "FAN", "FAR", "FAT", "FED", "FEE", "FEW", "FIG", "FIN", "FIR", "FIT", "FIX", "FLY", "FOB", "FOE", "FOG", "FOR", "FOX", "FRY", "FUN", "FUR", "GAD", "GAG", "GAP", "GAS", "GAY", "GEL", "GEM", "GET", "GIG", "GIN", "GLAD", "GNU", "GOA", "GOB", "GOD", "GOT", "GUM", "GUN", "GUT", "GUY", "GYM", "HAD", "HAM", "HAS", "HAT", "HAY", "HEM", "HEN", "HER", "HEY", "HID", "HIM", "HIP", "HIS", "HIT", "HOB", "HOG", "HOP", "HOT", "HOW", "HUB", "HUG", "HUM", "HUT", "ICE", "ICY", "ILL", "IMP", "INK", "INN", "ION", "IRE", "ITS", "IVY", "JAB", "JAM", "JAR", "JAW", "JAY", "JET", "JIG", "JOB", "JOG", "JOY", "JUG", "JUT", "KEG", "KEN", "KEY", "KID", "KIN", "KIT", "LAB", "LAD", "LAG", "LAP", "LAW", "LAY", "LED", "LEG", "LET", "LID", "LIE", "LIP", "LIT", "LOG", "LOP", "LOT", "LOW", "LYE", "MAD", "MAP", "MAT", "MAY", "MEN", "MET", "MEW", "MID", "MIX", "MOB", "MOD", "MOP", "MOW", "MUD", "MUG", "NAB", "NAG", "NAP", "NAY", "NET", "NEW", "NIB", "NIL", "NIP", "NIT", "NOD", "NOR", "NOT", "NOW", "NUN", "NUT", "OAK", "OAR", "OAT", "OBI", "ODD", "ODE", "OFF", "OIL", "OLD", "ONE", "OPT", "ORB", "ORE", "OUR", "OUT", "OWL", "OWN", "PAD", "PAL", "PAN", "PAR", "PAT", "PAW", "PAY", "PEA", "PEG", "PEN", "PET", "PEW", "PHI", "PIE", "PIG", "PIN", "PIP", "PIT", "PLY", "POD", "POP", "POT", "POW", "PRO", "PRY", "PUB", "PUG", "PUN", "PUP", "PUT", "QUA", "RAG", "RAM", "RAN", "RAP", "RAT", "RAW", "RAY", "RED", "RIB", "RID", "RIG", "RIM", "RIP", "ROB", "ROD", "ROE", "ROT", "ROW", "RUB", "RUE", "RUG", "RUM", "RUN", "RUT", "RYE", "SAD", "SAG", "SAP", "SAT", "SAW", "SAY", "SEA", "SEE", "SET", "SEW", "SHE", "SHY", "SIN", "SIP", "SIR", "SIS", "SIT", "SIX", "SKI", "SKY", "SLY", "SOB", "SOD", "SON", "SOW", "SOY", "SPA", "SPY", "STY", "SUB", "SUE", "SUN", "TAB", "TAD", "TAG", "TAN", "TAP", "TAR", "TAX", "TEA", "TEN", "THE", "THY", "TIC", "TIE", "TIN", "TIP", "TOE", "TOG", "TOM", "TON", "TOO", "TOP", "TOW", "TOY", "TRY", "TUB", "TUG", "TUX", "TWO", "URN", "USE", "VAN", "VAT", "VET", "VIA", "VIE", "VOW", "WAD", "WAG", "WAN", "WAR", "WAS", "WAX", "WAY", "WEB", "WED", "WET", "WHO", "WHY", "WIG", "WIN", "WIT", "WOE", "WON", "WOO", "WRY", "YAK", "YAM", "YAP", "YAW", "YEA", "YES", "YET", "YOU", "ZAP", "ZEN", "ZOO"];
+
+    const bgMusic = new Audio('raindrops.mp3'); bgMusic.loop = true;
+    function playPop() { new Audio('bubble.mp3').play().catch(()=>{}); }
+    function playHeartSFX() { new Audio('heart.mp3').play().catch(()=>{}); }
+    function playBurnedSFX() { new Audio('burned.mp3').play().catch(()=>{}); }
+    function playMissSFX() { new Audio('miss.mp3').play().catch(()=>{}); }
+
+    let score = 0, lives = 5, currentInput = "", targets = [], particles = [], rain = [], ambientRoris = [], splashes = [];
+    let isGameRunning = false, isGameOver = false, globalTime = 0, shakeIntensity = 0;
+    let speedLevel = 1, baseSpawnRate = 1600, currentWindX = -7;
+    let highScore = localStorage.getItem('roriHighScore') || 0;
+
+    function getStringWidth(str, charScale, spacing) {
+        let totalWidth = 0;
+        for (let char of str.toUpperCase()) {
+            let img = letterImages[char] || numberImages[char];
+            if (img) totalWidth += (img.naturalWidth || 50) * charScale + spacing;
+        }
+        return totalWidth;
+    }
+
+    function drawAssetString(context, str, x, y, charScale = 0.5, spacing = 5, center = false) {
+        str = String(str).toUpperCase();
+        let totalWidth = getStringWidth(str, charScale, spacing);
+        let curX = center ? x - totalWidth / 2 : x;
+        for (let char of str) {
+            let img = letterImages[char] || numberImages[char];
+            if (img) {
+                let w = (img.naturalWidth || 50) * charScale;
+                let h = (img.naturalHeight || 50) * charScale;
+                context.drawImage(img, curX, y - h / 2, w, h);
+                curX += w + spacing;
+            }
+        }
+        return totalWidth;
+    }
+
+    class Splash {
+        constructor(x, y) {
+            this.x = x; this.y = y;
+            this.particles = [];
+            for(let i=0; i<4; i++) {
+                this.particles.push({ vx: (Math.random() - 0.5) * 4, vy: -Math.random() * 3, r: Math.random() * 2, alpha: 1 });
+            }
+        }
+        update() {
+            this.particles.forEach(p => {
+                p.vx *= 0.95; p.vy += 0.2;
+                p.x = (p.x || this.x) + p.vx;
+                p.y = (p.y || this.y) + p.vy;
+                p.alpha -= 0.05;
+            });
+            this.particles = this.particles.filter(p => p.alpha > 0);
+        }
+        draw() {
+            this.particles.forEach(p => {
+                ctx.fillStyle = `rgba(180, 220, 255, ${p.alpha})`;
+                ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+            });
+        }
+    }
+
+    class RainDrop {
+        constructor() { this.reset(); }
+        reset() {
+            this.x = Math.random() * (canvas.width + 800) - 200; 
+            this.y = -100; this.length = 20 + Math.random() * 25;
+            this.speedY = 12 + Math.random() * 12; this.opacity = 0.15 + Math.random() * 0.25;
+        }
+        update() {
+            this.x += currentWindX; this.y += this.speedY;
+            if (this.y > canvas.height - 10) {
+                splashes.push(new Splash(this.x, canvas.height - 5));
+                this.reset();
+            }
+        }
+        draw() {
+            ctx.strokeStyle = `rgba(180, 220, 255, ${this.opacity})`;
+            ctx.lineWidth = 1.5; ctx.beginPath();
+            ctx.moveTo(this.x, this.y); ctx.lineTo(this.x + currentWindX * 1.5, this.y + this.length);
+            ctx.stroke();
+        }
+    }
+    for(let i=0; i<120; i++) rain.push(new RainDrop());
+
+    function startGame() {
+        document.getElementById('start-screen').style.display = 'none';
+        isGameRunning = true;
+        bgMusic.play().catch(()=>{});
+        spawnTarget();
+        spawnAmbientRori();
+        render();
+    }
+
+    class AmbientRori {
+        constructor() {
+            this.width = 350; this.height = 350; 
+            this.img = Math.random() > 0.5 ? roriFloatImg : roriSwingImg;
+            this.x = Math.random() * (canvas.width - this.width);
+            this.y = -this.height;
+            this.glideSpeed = 0.4 + Math.random() * 0.8;
+            this.flip = Math.random() > 0.5 ? 1 : -1;
+            this.rockOffset = Math.random() * Math.PI * 2;
+            this.rockSpeed = 0.015 + Math.random() * 0.015;
+            this.glitchTimer = 0;
+        }
+        triggerGlitch() { this.glitchTimer = 30; }
+        update() {
+            this.y += this.glideSpeed;
+            this.angle = Math.sin(globalTime * this.rockSpeed + this.rockOffset) * 0.15;
+            if (this.glitchTimer > 0) this.glitchTimer--;
+        }
+        draw() {
+            ctx.save();
+            let dX = this.x + this.width / 2;
+            let dY = this.y;
+            if (this.glitchTimer > 0) {
+                dX += (Math.random() - 0.5) * 40;
+                ctx.globalAlpha = Math.random() > 0.2 ? 1.0 : 0.2;
+                ctx.globalCompositeOperation = "screen";
+                ctx.drawImage(this.img, dX - 10 - this.width/2, dY, this.width, this.height);
+            }
+            ctx.translate(dX, dY); ctx.rotate(this.angle); ctx.scale(this.flip, 1);
+            ctx.drawImage(this.img, -this.width / 2, 0, this.width, this.height);
+            ctx.restore(); ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1.0;
+        }
+    }
+
+    setInterval(() => {
+        if (isGameRunning) {
+            speedLevel++;
+            speedAlert.style.opacity = 1;
+            ambientRoris.forEach(r => r.triggerGlitch());
+            setTimeout(() => speedAlert.style.opacity = 0, 2000);
+        }
+    }, 20000);
+
+    class Particle {
+        constructor(x, y, color, isShard = false) {
+            this.x = x; this.y = y; this.color = color;
+            this.isShard = isShard; this.size = Math.random() * 5 + 2;
+            this.speedX = (Math.random() - 0.5) * (isShard ? 22 : 10);
+            this.speedY = (Math.random() - 0.5) * (isShard ? 22 : 10);
+            this.life = 1.0; this.rotation = Math.random() * Math.PI * 2;
+        }
+        update() { this.x += this.speedX; this.y += this.speedY; this.life -= 0.015; }
+        draw() {
+            ctx.globalAlpha = this.life; ctx.fillStyle = this.color;
+            if (this.isShard) {
+                ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.rotation);
+                ctx.beginPath(); ctx.moveTo(0, -this.size * 1.5); ctx.lineTo(this.size, this.size); ctx.lineTo(-this.size, this.size);
+                ctx.closePath(); ctx.fill(); ctx.restore();
+            } else {
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill();
+            }
+            ctx.globalAlpha = 1.0;
+        }
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (!isGameRunning) return;
+        const key = e.key.toUpperCase();
+        if (e.key === 'Backspace') currentInput = currentInput.slice(0, -1);
+        else if (/^[0-9A-Z]$/.test(key) && currentInput.length < 3) { currentInput += key; checkMatch(); }
+        else if (e.key === 'Enter' || e.key === ' ') currentInput = "";
+        inputDisplay.innerText = currentInput || "_";
+    });
+
+    function checkMatch() {
+        let hit = false;
+        for (let i = targets.length - 1; i >= 0; i--) {
+            const t = targets[i];
+            if (currentInput === String(t.value)) {
+                let color = t.isHeart ? "#ff69b4" : (t.isHazard ? "#ff0000" : "#60a5fa");
+                for(let p=0; p<20; p++) particles.push(new Particle(t.x, t.y, color));
+                if (t.isHeart) { lives = Math.min(lives + 1, 10); playHeartSFX(); }
+                else if (t.isHazard) { score += 500; playBurnedSFX(); }
+                else if (t.isPowerUp) { triggerMegaBlast(); playPop(); }
+                else { score += (t.value > 99 ? 100 : 20); playPop(); }
+                targets.splice(i, 1); hit = true;
+            }
+        }
+        if (hit) { currentInput = ""; inputDisplay.innerText = "_"; }
+    }
+
+    function triggerMegaBlast() {
+        score += targets.length * 50;
+        targets.forEach(t => { for(let p=0; p<10; p++) particles.push(new Particle(t.x, t.y, "#fff", true)); });
+        targets = []; shakeIntensity = 15;
+    }
+
+    function createTarget(val, isPowerUp, isHazard, isHeart) {
+        let digitData = [];
+        let strVal = String(val);
+        for (let i = 0; i < strVal.length; i++) {
+            digitData.push({
+                baseRotation: (Math.random() * 0.2) - 0.1,
+                wiggleSpeed: 0.02 + Math.random() * 0.03,
+                wiggleAmount: 0.1, wiggleOffset: Math.random() * Math.PI * 2
+            });
+        }
+        const baseSpeed = 1.2 + (speedLevel * 0.3); 
+        let finalSpeed = baseSpeed * (0.8 + Math.random() * 0.4);
+        if (isHazard) finalSpeed = baseSpeed * 1.5; 
+        targets.push({ x: Math.random()*(canvas.width-300)+150, y: -100, value: val, isHazard: isHazard, isPowerUp: isPowerUp, isHeart: isHeart, digits: digitData, speed: finalSpeed, history: [], bubbleOffset: Math.random() * Math.PI * 2, wobbleOffset: Math.random() * Math.PI });
+    }
+
+    function spawnTarget() {
+        if (!isGameRunning) return;
+        const rand = Math.random();
+        if (rand > 0.97) createTarget('YES', false, false, true);
+        else if (rand > 0.90) createTarget(dictionary[Math.floor(Math.random()*dictionary.length)], true, false, false);
+        else if (rand > 0.75) createTarget(dictionary[Math.floor(Math.random()*dictionary.length)], false, true, false);
+        else if (rand > 0.50) createTarget(dictionary[Math.floor(Math.random()*dictionary.length)], false, false, false);
+        else { let nVal = Math.floor(Math.random()*10); if (Math.random() > 0.8) nVal = Math.floor(Math.random()*90)+10; createTarget(nVal, false, false, false); }
+        setTimeout(spawnTarget, Math.max(400, baseSpawnRate - (speedLevel * 140)));
+    }
+
+    function spawnAmbientRori() {
+        if (!isGameRunning) return;
+        ambientRoris.push(new AmbientRori());
+        setTimeout(spawnAmbientRori, 6000 + Math.random() * 8000);
+    }
+
+    function triggerGlitchEffect() {
+        glitchOverlay.style.background = "rgba(255, 0, 0, 0.4)";
+        setTimeout(() => { glitchOverlay.style.background = "rgba(255, 0, 0, 0)"; }, 150);
+        shakeIntensity = 50;
+    }
+
+    function renderHUD() {
+        const hudY = 50; const labelScale = 0.5; const numScale = 0.7; const charSpacing = 5; const numberOffset = 45;
+        const seg = canvas.width / 4;
+        const centers = [seg * 0.5, seg * 1.5, seg * 2.5, seg * 3.5];
+
+        let w1 = getStringWidth("SCORE", labelScale, charSpacing);
+        let startX1 = centers[0] - (w1 + numberOffset + getStringWidth(String(score), numScale, charSpacing)) / 2;
+        drawAssetString(ctx, "SCORE", startX1, hudY, labelScale);
+        drawAssetString(ctx, score, startX1 + w1 + numberOffset, hudY, numScale);
+
+        let w2 = getStringWidth("HI", labelScale, charSpacing);
+        let startX2 = centers[1] - (w2 + numberOffset + getStringWidth(String(highScore), numScale, charSpacing)) / 2;
+        drawAssetString(ctx, "HI", startX2, hudY, labelScale);
+        drawAssetString(ctx, highScore, startX2 + w2 + numberOffset, hudY, numScale);
+
+        let w3 = getStringWidth("LVL", labelScale, charSpacing);
+        let startX3 = centers[2] - (w3 + numberOffset + getStringWidth(String(speedLevel), numScale, charSpacing)) / 2;
+        drawAssetString(ctx, "LVL", startX3, hudY, labelScale);
+        drawAssetString(ctx, speedLevel, startX3 + w3 + numberOffset, hudY, numScale);
+
+        ctx.save(); if (lives <= 2) ctx.filter = "sepia(1) saturate(5) hue-rotate(-50deg)";
+        let w4 = getStringWidth("LIVES", labelScale, charSpacing);
+        let startX4 = centers[3] - (w4 + numberOffset + getStringWidth(String(lives), numScale, charSpacing)) / 2;
+        drawAssetString(ctx, "LIVES", startX4, hudY, labelScale);
+        drawAssetString(ctx, lives, startX4 + w4 + numberOffset, hudY, numScale);
+        ctx.restore();
+    }
+
+    function showGameOver() {
+        isGameRunning = false; isGameOver = true;
+        bgMusic.volume = 0.3;
+        if (score > highScore) { highScore = score; localStorage.setItem('roriHighScore', highScore); }
+        
+        fsCtx.clearRect(0,0, finalScoreCanvas.width, finalScoreCanvas.height);
+        drawAssetString(fsCtx, "FINAL SCORE: " + score, finalScoreCanvas.width/2, 40, 0.5, 6, true);
+        drawAssetString(fsCtx, "BEST SCORE: " + highScore, finalScoreCanvas.width/2, 110, 0.4, 5, true);
+        
+        document.getElementById('game-over').style.display = 'flex';
+        inputDisplay.style.display = 'none';
+    }
+
+    function render() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        globalTime++;
+        
+        let sX = (Math.random() - 0.5) * shakeIntensity, sY = (Math.random() - 0.5) * shakeIntensity;
+        shakeIntensity *= 0.92;
+        
+        ctx.save(); ctx.translate(sX, sY);
+        ctx.clearRect(-100, -100, canvas.width+200, canvas.height+200);
+
+        splashes.forEach((s, i) => { s.update(); s.draw(); if(s.particles.length === 0) splashes.splice(i, 1); });
+        rain.forEach(drop => { drop.update(); drop.draw(); });
+
+        if (isGameRunning) {
+            ambientRoris.forEach((r, i) => { r.update(); r.draw(); if (r.y > canvas.height + 400) ambientRoris.splice(i, 1); });
+            particles.forEach((p, i) => { p.update(); p.draw(); if (p.life <= 0) particles.splice(i, 1); });
+            targets.forEach((t, i) => {
+                t.y += t.speed;
+                let dX = t.x + (t.isHeart ? Math.sin(globalTime * 0.04) * 30 : 0);
+                t.history.push({x: dX, y: t.y}); if (t.history.length > 6) t.history.shift();
+                t.history.forEach((pos, idx) => { ctx.globalAlpha = idx / 12; ctx.save(); ctx.translate(pos.x, pos.y); drawContent(ctx, t, true); ctx.restore(); });
+                ctx.globalAlpha = 1.0; ctx.save(); ctx.translate(dX, t.y); drawContent(ctx, t, false); ctx.restore();
+                if (t.y > canvas.height + 150) {
+                    if (t.isHazard) { triggerGlitchEffect(); lives -= 2; playMissSFX(); }
+                    else if (!t.isPowerUp && !t.isHeart) { shakeIntensity = 10; lives -= 1; }
+                    targets.splice(i, 1); if (lives <= 0) showGameOver();
+                }
+            });
+            renderHUD();
+        }
+        ctx.restore();
+        requestAnimationFrame(render);
+    }
+
+    function drawContent(context, t, isTrail) {
+        if (t.isHeart) {
+            const p = 1.1 + Math.sin(globalTime * 0.1) * 0.08;
+            context.scale(p, p); context.fillStyle = "#ff69b4"; context.font = "bold 45px Arial";
+            context.textAlign = "center"; context.fillText("♥ YES", 0, 0);
+        } else {
+            let str = String(t.value).toUpperCase();
+            let scale = !isNaN(str) ? 1.6 : 1.0; 
+            let totalW = 0, maxH = 0;
+            for (let char of str) {
+                let img = letterImages[char] || numberImages[char];
+                if (img) { totalW += (img.naturalWidth || 50) * scale + 8; maxH = Math.max(maxH, (img.naturalHeight || 50) * scale); }
+            }
+            let curX = -totalW / 2;
+            if (!isTrail) {
+                if (t.isHazard) { if (Math.sin(globalTime * 0.2) > 0) context.filter = "sepia(1) saturate(10) hue-rotate(-50deg)"; }
+                else if (t.isPowerUp) context.filter = "drop-shadow(0 0 10px #fbbf24) brightness(1.2)";
+            }
+            for (let j = 0; j < str.length; j++) {
+                const char = str[j]; const img = letterImages[char] || numberImages[char];
+                if (!img) continue;
+                const data = t.digits[j]; const w = (img.naturalWidth || 50) * scale, h = (img.naturalHeight || 50) * scale;
+                const rock = isTrail ? 0 : Math.sin(globalTime * data.wiggleSpeed + data.wiggleOffset) * data.wiggleAmount;
+                context.save(); context.translate(curX + w / 2, rock * 10); context.rotate(data.baseRotation + rock);
+                context.drawImage(img, -w / 2, -h / 2, w, h); context.restore();
+                curX += w + 8;
+            }
+            if (!t.isHazard && !isTrail) {
+                const bR = Math.sqrt(Math.pow(totalW / 2, 2) + Math.pow(maxH / 2, 2)) + 12;
+                context.beginPath(); context.arc(0, 0, bR + Math.sin(globalTime * 0.08 + t.wobbleOffset) * 4, 0, Math.PI * 2);
+                context.strokeStyle = t.isPowerUp ? "#fbbf24" : `hsla(${(globalTime + t.bubbleOffset * 10) % 360}, 100%, 75%, 0.6)`;
+                context.lineWidth = t.isPowerUp ? 6 : 4; context.stroke();
+            }
+            context.filter = "none";
+        }
+    }
+</script>
+</body>
+</html>
