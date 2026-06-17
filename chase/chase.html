@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Rori vs Elmyra: Smooth Start</title>
+    <title>Rori vs Elmyra: Max Speed Edition</title>
     <style>
         body { 
             margin: 0; 
@@ -27,7 +27,6 @@
             background: #000; 
         }
 
-        /* Instruction Overlay with Smooth Fade */
         #instruction-overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -37,7 +36,7 @@
             align-items: center;
             z-index: 200;
             opacity: 1;
-            transition: opacity 0.8s ease-out; /* The Smooth Fade */
+            transition: opacity 0.8s ease-out;
         }
         
         #instruct-img {
@@ -128,6 +127,10 @@ let timerInterval, lightningTimeout, rori, elmyra, platforms = [], cameraX = 0;
 let roriHistory = [], playbackPath = [], playbackIndex = 0;
 let isSmoothingToPath = false, roriIdleTimer = 0;
 
+let lastTime = 0;
+let accumulator = 0;
+const FIXED_DELTA = 1000 / 60; 
+
 const RORI_RUN = "rori_chase.gif", RORI_STOP = "stopping.gif", RORI_WIN = "victory_pose.gif";
 
 function scheduleLightning() {
@@ -173,9 +176,8 @@ window.addEventListener('keydown', e => {
     if (e.code === 'Enter') {
         if (showingInstructions) {
             showingInstructions = false;
-            instructOverlay.style.opacity = "0"; // Trigger CSS transition
+            instructOverlay.style.opacity = "0"; 
             instructOverlay.style.pointerEvents = "none";
-            // Small delay to allow the fade before the AI starts
             setTimeout(() => {
                 instructOverlay.style.display = "none";
                 startLevel(); 
@@ -208,18 +210,19 @@ function startLevel() {
     while (currentX < worldWidth - 400) {
         let randW = 150 + Math.random() * 300; 
         let randY = 180 + Math.random() * 250; 
-        let vx = (currentLevel >= 2 && Math.random() > 0.6) ? 0.008 + Math.random() * 0.008 : 0;
+        let vx = (currentLevel >= 2 && Math.random() > 0.6) ? 1.5 + Math.random() * 1.5 : 0; 
         let isGhost = (currentLevel >= 3 && Math.random() > 0.7);
 
         platforms.push({ 
             x: currentX, y: randY, w: randW, h: 30, vx: vx, range: 100, originalX: currentX, moveTimer: Math.random() * 100,
-            isGhost: isGhost, ghostState: 'solid', stateTimer: 10000, opacity: 1, glow: 0
+            isGhost: isGhost, ghostState: 'solid', stateTimer: 600, opacity: 1, glow: 0
         });
         currentX += randW + (150 + Math.random() * 200); 
     }
 
-    rori = { x: 100, y: 350, w: 60, h: 160, dx: 0, dy: 0, speed: 9.5, jump: -17, grounded: false, facing: 1 };
-    elmyra = { x: worldWidth - 400, y: 250, w: 120, h: 120, dx: 0, dy: 0, speed: 1.8 + (currentLevel * 0.5), jump: -14, grounded: false, facing: -1, lastJumpTime: 0, jumpCooldown: 1200 };
+    // SPEED AND PHYSICS RE-CALIBRATED AT PERFECT HIGHER COEFFICIENTS
+    rori = { x: 100, y: 350, w: 60, h: 160, dx: 0, dy: 0, speed: 14.0, jump: -22.5, grounded: false, facing: 1 };
+    elmyra = { x: worldWidth - 400, y: 250, w: 120, h: 120, dx: 0, dy: 0, speed: 4.0 + (currentLevel * 1.0), jump: -19.0, grounded: false, facing: -1, lastJumpTime: 0, jumpCooldown: 900 };
     
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = setInterval(() => {
@@ -229,74 +232,107 @@ function startLevel() {
         }
     }, 1000);
     scheduleLightning(); 
+    lastTime = performance.now();
+    accumulator = 0;
 }
 
-function update() {
+function tickPhysics() {
     if (!gameActive || showingInstructions) return;
 
     let isMoving = false;
     if (keys['ArrowLeft'] || keys['KeyA']) { rori.dx = -rori.speed; rori.facing = -1; isMoving = true; }
     else if (keys['ArrowRight'] || keys['KeyD']) { rori.dx = rori.speed; rori.facing = 1; isMoving = true; }
-    else { rori.dx *= 0.85; }
-    if ((keys['ArrowUp'] || keys['Space'] || keys['KeyW']) && rori.grounded) { rori.dy = rori.jump; rori.grounded = false; }
+    else { rori.dx *= 0.80; } 
+    
+    if ((keys['ArrowUp'] || keys['Space'] || keys['KeyW']) && rori.grounded) { 
+        rori.dy = rori.jump; 
+        rori.grounded = false; 
+    }
     
     let roriNext = (isMoving || !rori.grounded) ? RORI_RUN : RORI_STOP;
     if (roriImg.src.indexOf(roriNext) === -1) roriImg.src = roriNext;
+    
     roriHistory.push({x: rori.x, y: rori.y});
     if (roriHistory.length > 1000) roriHistory.shift();
 
     platforms.forEach(p => {
-        if (p.vx !== 0) { let oldX = p.x; p.moveTimer += p.vx; p.x = p.originalX + Math.sin(p.moveTimer) * p.range; p.lastDeltaX = p.x - oldX; }
+        if (p.vx !== 0) { 
+            let oldX = p.x; 
+            p.moveTimer += p.vx * 0.0166; 
+            p.x = p.originalX + Math.sin(p.moveTimer) * p.range; 
+            p.lastDeltaX = p.x - oldX; 
+        } else {
+            p.lastDeltaX = 0;
+        }
         if (p.isGhost) {
-            p.stateTimer -= 16.6;
+            p.stateTimer -= 1;
             if (p.stateTimer <= 0) {
-                if (p.ghostState === 'solid') { p.ghostState = 'warning'; p.stateTimer = 500; }
-                else if (p.ghostState === 'warning') { p.ghostState = 'fadeout'; p.stateTimer = 2000; }
-                else if (p.ghostState === 'fadeout') { p.ghostState = 'gone'; p.stateTimer = 3000 + Math.random() * 2000; }
-                else if (p.ghostState === 'gone') { p.ghostState = 'fadein'; p.stateTimer = 1000; }
-                else { p.ghostState = 'solid'; p.stateTimer = 10000; }
+                if (p.ghostState === 'solid') { p.ghostState = 'warning'; p.stateTimer = 30; }
+                else if (p.ghostState === 'warning') { p.ghostState = 'fadeout'; p.stateTimer = 120; }
+                else if (p.ghostState === 'fadeout') { p.ghostState = 'gone'; p.stateTimer = 180 + Math.random() * 120; }
+                else if (p.ghostState === 'gone') { p.ghostState = 'fadein'; p.stateTimer = 60; }
+                else { p.ghostState = 'solid'; p.stateTimer = 600; }
             }
             if (p.ghostState === 'solid') { p.opacity = 1; p.glow = 0; }
-            else if (p.ghostState === 'warning') { p.opacity = 1; p.glow = (500 - p.stateTimer) / 500; }
-            else if (p.ghostState === 'fadeout') { p.opacity = p.stateTimer / 2000; p.glow = p.opacity; }
+            else if (p.ghostState === 'warning') { p.opacity = 1; p.glow = (30 - p.stateTimer) / 30; }
+            else if (p.ghostState === 'fadeout') { p.opacity = p.stateTimer / 120; p.glow = p.opacity; }
             else if (p.ghostState === 'gone') { p.opacity = 0; p.glow = 0; }
-            else { p.opacity = (1000 - p.stateTimer) / 1000; p.glow = 0; }
+            else { p.opacity = (60 - p.stateTimer) / 60; p.glow = 0; }
         }
     });
 
     if (Math.abs(rori.dx) < 0.1 && rori.y < 450 && !isSmoothingToPath && playbackPath.length === 0) {
         roriIdleTimer++;
-        if (roriIdleTimer > 150) { playbackPath = [...roriHistory]; isSmoothingToPath = true; roriIdleTimer = 0; document.getElementById('status').innerText = "STATUS: MIMICRY"; }
+        if (roriIdleTimer > 70) { playbackPath = [...roriHistory]; isSmoothingToPath = true; roriIdleTimer = 0; document.getElementById('status').innerText = "STATUS: MIMICRY"; }
     } else { roriIdleTimer = 0; }
 
     if (!isSmoothingToPath && playbackPath.length === 0) {
         document.getElementById('status').innerText = "STATUS: CHASE";
         let moveDir = (rori.x < elmyra.x) ? -elmyra.speed : elmyra.speed;
-        elmyra.dx += (moveDir - elmyra.dx) * 0.1;
+        elmyra.dx += (moveDir - elmyra.dx) * 0.25; 
         elmyra.facing = (elmyra.dx > 0) ? 1 : -1;
-        if (elmyra.grounded && (rori.y < elmyra.y - 80 || Math.random() < 0.01)) {
+        if (elmyra.grounded && (rori.y < elmyra.y - 70 || Math.random() < 0.03)) {
             if (Date.now() - elmyra.lastJumpTime > elmyra.jumpCooldown) { elmyra.dy = elmyra.jump; elmyra.grounded = false; elmyra.lastJumpTime = Date.now(); }
         }
     }
 
     [rori, elmyra].forEach(ent => {
         if (ent === elmyra && (playbackPath.length > 0 || isSmoothingToPath)) return;
-        ent.dy += 0.55; ent.x += ent.dx; ent.y += ent.dy; ent.grounded = false;
+        
+        ent.dy += 0.85; // Snappier downforce gravity
+        ent.x += ent.dx; 
+        ent.y += ent.dy; 
+        
+        let stoodOnPlatform = false;
+        
         platforms.forEach(p => { 
             let alpha = p.isGhost ? p.opacity : 1;
-            if (alpha > 0.5 && ent.dy >= 0 && ent.y + ent.h >= p.y && ent.y + ent.h <= p.y + p.h + 20 && ent.x + ent.w > p.x && ent.x < p.x + p.w) { 
-                ent.y = p.y - ent.h; ent.dy = 0; ent.grounded = true; ent.x += (p.lastDeltaX || 0); 
+            if (alpha > 0.5 && ent.dy >= 0 && 
+                (ent.y + ent.h) >= p.y && 
+                (ent.y + ent.h) <= p.y + p.h + 24 && 
+                (ent.x + ent.w) > p.x + 2 && 
+                ent.x < (p.x + p.w) - 2) { 
+                
+                ent.y = p.y - ent.h; 
+                ent.dy = 0; 
+                stoodOnPlatform = true; 
+                ent.x += (p.lastDeltaX || 0); 
             }
         });
+        
+        ent.grounded = stoodOnPlatform;
         if (ent.x < 0) ent.x = 0; if (ent.x + ent.w > worldWidth) ent.x = worldWidth - ent.w;
     });
 
     if (isSmoothingToPath) {
         let target = playbackPath[0], dx = target.x - elmyra.x, dy = (target.y + (rori.h - elmyra.h)) - elmyra.y, dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist > 10) { elmyra.x += (dx/dist) * (elmyra.speed * 1.8); elmyra.y += (dy/dist) * (elmyra.speed * 1.8); elmyra.facing = (dx > 0) ? 1 : -1; }
+        if (dist > 10) { 
+            let step = elmyra.speed * 2.8;
+            elmyra.x += (dx/dist) * step; elmyra.y += (dy/dist) * step; elmyra.facing = (dx > 0) ? 1 : -1; 
+        }
         else { isSmoothingToPath = false; playbackIndex = 0; }
     } else if (playbackPath.length > 0) {
-        playbackIndex += 1.8; let idx = Math.floor(playbackIndex);
+        playbackIndex += 3.2; let idx = Math.floor(playbackIndex);
         if (idx < playbackPath.length) { let prevX = elmyra.x; elmyra.x = playbackPath[idx].x; elmyra.y = playbackPath[idx].y + (rori.h - elmyra.h); elmyra.facing = (elmyra.x >= prevX) ? 1 : -1; }
         else { playbackPath = []; playbackIndex = 0; }
     }
@@ -313,8 +349,20 @@ function update() {
     }
 }
 
-function draw() {
-    update();
+function draw(timestamp) {
+    if (!timestamp) timestamp = performance.now();
+    
+    let frameTime = timestamp - lastTime;
+    if (frameTime > 250) frameTime = 250; 
+    lastTime = timestamp;
+
+    accumulator += frameTime;
+
+    while (accumulator >= FIXED_DELTA) {
+        tickPhysics();
+        accumulator -= FIXED_DELTA;
+    }
+    
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     if (!showingInstructions && rori && elmyra) {
@@ -348,10 +396,9 @@ function draw() {
     requestAnimationFrame(draw);
 }
 
-// Data init
 rori = { x: 0, y: 0, w: 0, h: 0 };
 elmyra = { x: 0, y: 0, w: 0, h: 0 };
-draw();
+requestAnimationFrame(draw);
 </script>
 </body>
 </html>
