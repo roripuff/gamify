@@ -144,6 +144,11 @@
     let speedLevel = 1, baseSpawnRate = 1600, currentWindX = -7;
     let highScore = localStorage.getItem('roriHighScore') || 0;
 
+    // HARDWARE DETERMINISTIC PHYSICS MECHANICS VARIABLES
+    let lastTime = 0;
+    let accumulator = 0;
+    const FIXED_DELTA = 1000 / 60; // Strict 60 Updates Per Second loop block
+
     function getStringWidth(str, charScale, spacing) {
         let totalWidth = 0;
         for (let char of str.toUpperCase()) {
@@ -177,12 +182,13 @@
                 this.particles.push({ vx: (Math.random() - 0.5) * 4, vy: -Math.random() * 3, r: Math.random() * 2, alpha: 1 });
             }
         }
-        update() {
+        update(dt) {
             this.particles.forEach(p => {
-                p.vx *= 0.95; p.vy += 0.2;
-                p.x = (p.x || this.x) + p.vx;
-                p.y = (p.y || this.y) + p.vy;
-                p.alpha -= 0.05;
+                p.vx *= Math.pow(0.95, dt); 
+                p.vy += 0.2 * dt;
+                p.x = (p.x || this.x) + p.vx * dt;
+                p.y = (p.y || this.y) + p.vy * dt;
+                p.alpha -= 0.05 * dt;
             });
             this.particles = this.particles.filter(p => p.alpha > 0);
         }
@@ -201,8 +207,9 @@
             this.y = -100; this.length = 20 + Math.random() * 25;
             this.speedY = 12 + Math.random() * 12; this.opacity = 0.15 + Math.random() * 0.25;
         }
-        update() {
-            this.x += currentWindX; this.y += this.speedY;
+        update(dt) {
+            this.x += currentWindX * dt; 
+            this.y += this.speedY * dt;
             if (this.y > canvas.height - 10) {
                 splashes.push(new Splash(this.x, canvas.height - 5));
                 this.reset();
@@ -215,15 +222,22 @@
             ctx.stroke();
         }
     }
-    for(let i=0; i<120; i++) rain.push(new RainDrop());
 
     function startGame() {
         document.getElementById('start-screen').style.display = 'none';
         isGameRunning = true;
         bgMusic.play().catch(()=>{});
+        
+        // Clear rain array completely and size to active layout
+        rain = [];
+        for(let i=0; i<120; i++) rain.push(new RainDrop());
+        
         spawnTarget();
         spawnAmbientRori();
-        render();
+        
+        lastTime = performance.now();
+        accumulator = 0;
+        requestAnimationFrame(render);
     }
 
     class AmbientRori {
@@ -239,10 +253,10 @@
             this.glitchTimer = 0;
         }
         triggerGlitch() { this.glitchTimer = 30; }
-        update() {
-            this.y += this.glideSpeed;
+        update(dt) {
+            this.y += this.glideSpeed * dt;
             this.angle = Math.sin(globalTime * this.rockSpeed + this.rockOffset) * 0.15;
-            if (this.glitchTimer > 0) this.glitchTimer--;
+            if (this.glitchTimer > 0) this.glitchTimer = Math.max(0, this.glitchTimer - dt);
         }
         draw() {
             ctx.save();
@@ -277,8 +291,13 @@
             this.speedY = (Math.random() - 0.5) * (isShard ? 22 : 10);
             this.life = 1.0; this.rotation = Math.random() * Math.PI * 2;
         }
-        update() { this.x += this.speedX; this.y += this.speedY; this.life -= 0.015; }
+        update(dt) { 
+            this.x += this.speedX * dt; 
+            this.y += this.speedY * dt; 
+            this.life -= 0.015 * dt; 
+        }
         draw() {
+            if (this.life <= 0) return;
             ctx.globalAlpha = this.life; ctx.fillStyle = this.color;
             if (this.isShard) {
                 ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.rotation);
@@ -336,7 +355,7 @@
         const baseSpeed = 1.2 + (speedLevel * 0.3); 
         let finalSpeed = baseSpeed * (0.8 + Math.random() * 0.4);
         if (isHazard) finalSpeed = baseSpeed * 1.5; 
-        targets.push({ x: Math.random()*(canvas.width-300)+150, y: -100, value: val, isHazard: isHazard, isPowerUp: isPowerUp, isHeart: isHeart, digits: digitData, speed: finalSpeed, history: [], bubbleOffset: Math.random() * Math.PI * 2, wobbleOffset: Math.random() * Math.PI });
+        targets.push({ x: Math.random()*(window.innerWidth-300)+150, y: -100, value: val, isHazard: isHazard, isPowerUp: isPowerUp, isHeart: isHeart, digits: digitData, speed: finalSpeed, history: [], bubbleOffset: Math.random() * Math.PI * 2, wobbleOffset: Math.random() * Math.PI });
     }
 
     function spawnTarget() {
@@ -403,37 +422,76 @@
         inputDisplay.style.display = 'none';
     }
 
-    function render() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        globalTime++;
-        
-        let sX = (Math.random() - 0.5) * shakeIntensity, sY = (Math.random() - 0.5) * shakeIntensity;
-        shakeIntensity *= 0.92;
-        
-        ctx.save(); ctx.translate(sX, sY);
-        ctx.clearRect(-100, -100, canvas.width+200, canvas.height+200);
+    // THE DETERMINISTIC PHYSICS STEP BLOCK (Runs at absolute 60hz step velocity ratios)
+    function tickPhysics(dt) {
+        globalTime += dt;
+        shakeIntensity *= Math.pow(0.92, dt);
 
-        splashes.forEach((s, i) => { s.update(); s.draw(); if(s.particles.length === 0) splashes.splice(i, 1); });
-        rain.forEach(drop => { drop.update(); drop.draw(); });
+        splashes.forEach((s, i) => { s.update(dt); if(s.particles.length === 0) splashes.splice(i, 1); });
+        rain.forEach(drop => { drop.update(dt); });
 
         if (isGameRunning) {
-            ambientRoris.forEach((r, i) => { r.update(); r.draw(); if (r.y > canvas.height + 400) ambientRoris.splice(i, 1); });
-            particles.forEach((p, i) => { p.update(); p.draw(); if (p.life <= 0) particles.splice(i, 1); });
+            ambientRoris.forEach((r, i) => { r.update(dt); if (r.y > canvas.height + 400) ambientRoris.splice(i, 1); });
+            particles.forEach((p, i) => { p.update(dt); if (p.life <= 0) particles.splice(i, 1); });
+            
             targets.forEach((t, i) => {
-                t.y += t.speed;
+                t.y += t.speed * dt;
                 let dX = t.x + (t.isHeart ? Math.sin(globalTime * 0.04) * 30 : 0);
-                t.history.push({x: dX, y: t.y}); if (t.history.length > 6) t.history.shift();
-                t.history.forEach((pos, idx) => { ctx.globalAlpha = idx / 12; ctx.save(); ctx.translate(pos.x, pos.y); drawContent(ctx, t, true); ctx.restore(); });
-                ctx.globalAlpha = 1.0; ctx.save(); ctx.translate(dX, t.y); drawContent(ctx, t, false); ctx.restore();
+                
+                t.history.push({x: dX, y: t.y}); 
+                if (t.history.length > 6) t.history.shift();
+                
                 if (t.y > canvas.height + 150) {
                     if (t.isHazard) { triggerGlitchEffect(); lives -= 2; playMissSFX(); }
                     else if (!t.isPowerUp && !t.isHeart) { shakeIntensity = 10; lives -= 1; }
-                    targets.splice(i, 1); if (lives <= 0) showGameOver();
+                    targets.splice(i, 1); 
+                    if (lives <= 0) showGameOver();
                 }
+            });
+        }
+    }
+
+    function render(timestamp) {
+        // Automatically handle layout sizing checks on runtime
+        if (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight) {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        let frameTime = timestamp - lastTime;
+        if (frameTime > 250) frameTime = 250; // Safety threshold cap for computer wake/tab switching freezes
+        lastTime = timestamp;
+
+        accumulator += frameTime;
+
+        // Consume accrued time chunks in deterministic steps
+        while (accumulator >= FIXED_DELTA) {
+            tickPhysics(1.0); // Step ratio calculated safely at 1.0 unit velocity per block 
+            accumulator -= FIXED_DELTA;
+        }
+        
+        // Graphical drawing layer clears and traces layout variables safely
+        let sX = (Math.random() - 0.5) * shakeIntensity, sY = (Math.random() - 0.5) * shakeIntensity;
+        ctx.save(); ctx.translate(sX, sY);
+        ctx.clearRect(-100, -100, canvas.width+200, canvas.height+200);
+
+        splashes.forEach(s => s.draw());
+        rain.forEach(drop => drop.draw());
+
+        if (isGameRunning) {
+            ambientRoris.forEach(r => r.draw());
+            particles.forEach(p => p.draw());
+            
+            targets.forEach((t) => {
+                let dX = t.x + (t.isHeart ? Math.sin(globalTime * 0.04) * 30 : 0);
+                t.history.forEach((pos, idx) => { 
+                    ctx.globalAlpha = idx / 12; ctx.save(); ctx.translate(pos.x, pos.y); drawContent(ctx, t, true); ctx.restore(); 
+                });
+                ctx.globalAlpha = 1.0; ctx.save(); ctx.translate(dX, t.y); drawContent(ctx, t, false); ctx.restore();
             });
             renderHUD();
         }
+        
         ctx.restore();
         requestAnimationFrame(render);
     }
