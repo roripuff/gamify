@@ -177,6 +177,7 @@
 
     let game = { active: false }, player = {}, keys = {}, spawnTimer = null, starEffectTimer = null, confetti = [];
     let speedLines = []; 
+    let lastTime = 0; // Added tracker for frame delta
 
     function formatTime(ms) {
         let minutes = Math.floor(ms / 60000);
@@ -199,7 +200,7 @@
         sfxCrowd.pause();
         bgMusic.playbackRate = 1.0;
         game = {
-            active: true, speed: 0, maxSpeed: 5.5, starSpeed: 10.5, 
+            active: true, speed: 0, maxSpeed: 330, starSpeed: 630, // Calibrated speeds for pixels-per-second scaling
             momentum: 0, distanceMeters: 0, goalMeters: 5000, 
             lives: 3, worldOffset: 0, startTime: null, elapsedTime: 0, lastRunKey: null,
             objects: [], stars: [], shake: 0,
@@ -216,6 +217,8 @@
         timerDisplay.innerText = "00:00.00";
         roriSprite.src = "rori_run_right.gif";
         roriSprite.className = "";
+        lastTime = performance.now(); // Reset time anchor
+        if (spawnTimer) clearInterval(spawnTimer);
         spawnTimer = setInterval(spawn, 2200);
     }
 
@@ -233,12 +236,12 @@
         if (['arrowleft', 'a', 'arrowright', 'd'].includes(k)) {
             const side = (k.includes('left') || k === 'a') ? 'L' : 'R';
             if (side !== game.lastRunKey) {
-                game.speed += 1.2; 
+                game.speed += 72; // Adjusted increment for pixel/sec scaling
                 game.momentum = Math.min(100, game.momentum + 15);
                 game.lastRunKey = side;
             }
         }
-        if (e.key === ' ' && !player.isJumping) { player.jumpForce = 18; player.isJumping = true; }
+        if (e.key === ' ' && !player.isJumping) { player.jumpForce = 1080; player.isJumping = true; } // Scaled jump force
     });
 
     window.addEventListener('keyup', (e) => {
@@ -250,7 +253,7 @@
     });
 
     function spawn() {
-        if (!game.active || game.speed < 0.5 || game.gameOver || game.finishSpawned) return;
+        if (!game.active || game.speed < 30 || game.gameOver || game.finishSpawned) return;
         const rand = Math.random();
         
         if (rand < 0.15) {
@@ -261,10 +264,10 @@
             container.appendChild(el);
             game.stars.push({ el, x: 1300, y, w: 60, h: 60 });
         } else {
-            let src, w, h, y, sMod = 1.5;
+            let src, w, h, y, sMod = 90; // Base obstacle relative offset speed
             if (rand < 0.45) { src='rock.png'; w=100; h=50; y=50+Math.random()*300; }
             else if (rand < 0.8) { src='buldozer.gif'; w=200; h=100; y=50+Math.random()*250; }
-            else { src='bird.gif'; w=80; h=60; y=20+Math.random()*200; sMod=2.5; }
+            else { src='bird.gif'; w=80; h=60; y=20+Math.random()*200; sMod=150; }
             const el = document.createElement('img');
             el.src = src; el.className = 'obstacle';
             el.style.top = y + 'px'; el.style.left = '1300px';
@@ -279,7 +282,7 @@
         safePlay(sfxOuch);
         game.lives--; game.shake = 30; game.invincible = true; game.speed *= 0.3;
         lifeDisplay.innerText = "♥".repeat(Math.max(0, game.lives)) + "♡".repeat(3-game.lives);
-        obj.hit = true; obj.tumbleY = -15; 
+        obj.hit = true; obj.tumbleY = -900; // Physics trajectory for hitting obstacle scaled to dt
         if (game.lives <= 0) endGame("GAME OVER");
         else {
             roriSprite.classList.add('hit-blink');
@@ -299,7 +302,7 @@
             game.win = true; roriSprite.src = "winning.gif"; safePlay(sfxCrowd);
             confCanvas.style.display = 'block'; spawnConfetti();
         } else {
-            roriSprite.src = "crying.gif"; safePlay(sfxCrying); bgMusic.pause();
+            roriSprite.src = "crying.gif"; safePlay(srying=sfxCrying); safePlay(sfxCrying); bgMusic.pause();
         }
         if (spawnTimer) clearInterval(spawnTimer);
     }
@@ -320,7 +323,13 @@
         }
     }
 
-    function update() {
+    // Modern Game Loop utilizing timestamp parameter for Delta-Time calculations
+    function update(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        let dt = (timestamp - lastTime) / 1000; // Convert millisecond gap to seconds fraction
+        if (dt > 0.1) dt = 0.1; // Safeguard against massive physics jumps on extreme lag spikes
+        lastTime = timestamp;
+
         if (game.active && !game.gameOver) {
             if (game.startTime) {
                 game.elapsedTime = Date.now() - game.startTime;
@@ -332,44 +341,51 @@
                 game.speed = game.starSpeed;
                 game.momentum = 100;
             } else {
-                game.speed = Math.max(0, game.speed - 0.04); 
-                game.momentum = Math.max(0, game.momentum - 0.5);
+                game.speed = Math.max(0, game.speed - 2.4 * (dt * 60)); 
+                game.momentum = Math.max(0, game.momentum - 30 * dt);
             }
             
             let cap = (game.starMode || keys['ShiftRight']) ? game.starSpeed : game.maxSpeed;
             if (game.speed > cap) game.speed = cap;
             
-            game.worldOffset += game.speed * 2; 
-            game.distanceMeters += (game.speed * 0.12);
+            game.worldOffset += game.speed * 2 * dt; 
+            game.distanceMeters += (game.speed * 0.002) * (dt * 60);
             document.getElementById('crowd-bottom').style.backgroundPositionX = -(game.worldOffset * 0.8) + "px";
             
-            if (game.starMode || game.speed > 5.0 || keys['ShiftRight']) {
+            if (game.starMode || game.speed > 300 || keys['ShiftRight']) {
                 if (Math.random() > 0.5) {
-                    speedLines.push({ x: 1200, y: Math.random() * 400, length: Math.random() * 100 + 100, speed: Math.random() * 20 + 20 });
+                    speedLines.push({ x: 1200, y: Math.random() * 400, length: Math.random() * 100 + 100, speed: Math.random() * 1200 + 1200 });
                 }
             }
-            speedLines.forEach((l, i) => { l.x -= l.speed; if (l.x < -200) speedLines.splice(i, 1); });
+            speedLines.forEach((l, i) => { l.x -= l.speed * dt; if (l.x < -200) speedLines.splice(i, 1); });
 
             if (game.distanceMeters >= 4950 && !game.finishSpawned) {
                 game.finishSpawned = true; finishLineImg.style.display = 'block'; game.finishLineX = 1300;
             }
             if (game.finishSpawned) {
-                game.finishLineX -= game.speed; finishLineImg.style.left = game.finishLineX + 'px';
+                game.finishLineX -= game.speed * dt; finishLineImg.style.left = game.finishLineX + 'px';
                 if (game.finishLineX < player.x) endGame("5KM CHAMPION!");
             }
-            if (keys['w'] && player.y > 40) player.y -= 6;
-            if (keys['s'] && player.y < 380) player.y += 6;
+            if (keys['w'] && player.y > 40) player.y -= 360 * dt;
+            if (keys['s'] && player.y < 380) player.y += 360 * dt;
             if (player.isJumping) {
-                player.jumpY -= player.jumpForce; player.jumpForce -= 1.1;
+                player.jumpY -= player.jumpForce * dt; 
+                player.jumpForce -= 3960 * dt; // Gravity factor mapped to Delta Time
                 if (player.jumpY > 0) { player.jumpY = 0; player.isJumping = false; }
             }
             roriSprite.style.left = player.x + 'px';
             roriSprite.style.top = (player.y + player.jumpY) + 'px';
             
             game.objects.forEach((o, i) => {
-                if (o.hit) { o.x += 8; o.y += o.tumbleY; o.tumbleY += 1; o.rotation += 15; o.el.style.transform = `rotate(${o.rotation}deg)`; }
+                if (o.hit) { 
+                    o.x += 480 * dt; 
+                    o.y += o.tumbleY * dt; 
+                    o.tumbleY += 3600 * dt; 
+                    o.rotation += 900 * dt; 
+                    o.el.style.transform = `rotate(${o.rotation}deg)`; 
+                }
                 else {
-                    o.x -= (game.speed + o.sMod);
+                    o.x -= (game.speed + o.sMod) * dt;
                     const curY = parseFloat(o.el.style.top);
                     if (o.x < player.x + 30 && o.x + o.w > player.x && curY < player.y + player.jumpY + 40 && curY + o.h > player.y + player.jumpY + 10) handleCollision(o);
                 }
@@ -378,7 +394,7 @@
             });
             
             game.stars.forEach((s, i) => {
-                s.x -= (game.speed + 2); s.el.style.left = s.x + 'px';
+                s.x -= (game.speed + 120) * dt; s.el.style.left = s.x + 'px';
                 if (s.x < player.x + 40 && s.x + 40 > player.x && s.y < player.y + 40 && s.y + 40 > player.y) {
                     safePlay(sfxStar);
                     s.el.remove(); 
@@ -408,7 +424,7 @@
         if (game.win) {
             confCtx.clearRect(0,0,confCanvas.width, confCanvas.height);
             confetti.forEach(p => {
-                p.tiltAngle += p.tiltAngleIncremental; p.y += (Math.cos(p.d) + 3 + p.r / 2) / 2; p.x += Math.sin(p.tiltAngle);
+                p.tiltAngle += p.tiltAngleIncremental; p.y += ((Math.cos(p.d) + 3 + p.r / 2) / 2) * (dt * 60); p.x += Math.sin(p.tiltAngle);
                 if (p.y > confCanvas.height) p.y = -20;
                 confCtx.beginPath(); confCtx.lineWidth = p.r; confCtx.strokeStyle = p.color;
                 confCtx.moveTo(p.x + p.tilt + p.r / 4, p.y); confCtx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 4); confCtx.stroke();
@@ -424,13 +440,18 @@
         bgCtx.drawImage(fieldImg, scrollX, 0, 1200, 600);
         bgCtx.drawImage(fieldImg, scrollX + 1200, 0, 1200, 600);
         ctx.clearRect(0, 0, 1200, 600);
-        if (!game.gameOver && (game.starMode || game.speed > 5.0 || keys['ShiftRight'])) {
+        if (!game.gameOver && (game.starMode || game.speed > 300 || keys['ShiftRight'])) {
             ctx.strokeStyle = "rgba(255, 255, 255, 0.6)"; ctx.lineWidth = 2;
             speedLines.forEach(l => { ctx.beginPath(); ctx.moveTo(l.x, l.y); ctx.lineTo(l.x + l.length, l.y); ctx.stroke(); });
         }
         if (game.shake > 0) { ctx.translate((Math.random()-0.5)*game.shake, (Math.random()-0.5)*game.shake); game.shake *= 0.8; }
     }
-    update();
+    
+    // Explicitly seed the entry into requestAnimationFrame with a structured timestamp argument
+    requestAnimationFrame((timestamp) => {
+        lastTime = timestamp;
+        update(timestamp);
+    });
 </script>
 </body>
 </html>
