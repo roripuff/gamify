@@ -48,7 +48,6 @@
         .move-img { transform: scale(1.5); }
         .congrats-img { max-width: 800px; height: auto; }
         
-        /* 1. REMOVED STROKE/BORDER FROM GAMEPLAY IMAGE */
         .gameplay-img { max-width: 900px; height: auto; border: none; outline: none; }
         
         @keyframes borderBlink {
@@ -240,25 +239,26 @@
             if (!roriImg.src.includes(src)) roriImg.src = src;
         });
 
-        function update() {
+        // UPDATE FUNCTION MODIFIED TO ACCEPTS DELTA TIME (dt)
+        function update(dt) {
             if (lives <= 0 || gamePhase === 'win' || gamePhase === 'wait') return;
 
             if (rori.moving) {
-                if (rori.currentSpeed < rori.walkSpeed) rori.currentSpeed += rori.accel;
-                let nx = rori.x + Math.cos(rori.angle) * rori.currentSpeed;
-                let ny = rori.y + Math.sin(rori.angle) * rori.currentSpeed;
+                if (rori.currentSpeed < rori.walkSpeed) rori.currentSpeed += rori.accel * dt;
+                let nx = rori.x + Math.cos(rori.angle) * rori.currentSpeed * dt;
+                let ny = rori.y + Math.sin(rori.angle) * rori.currentSpeed * dt;
                 if (!checkCollision(nx, ny, rori.radius) && nx > 50 && nx < 950 && ny > 50 && ny < 950) { rori.x = nx; rori.y = ny; } 
                 else { rori.moving = false; rori.currentSpeed = 0; }
             }
             
-            if (shakeTime > 0) shakeTime--;
-            if (starAbilityTimer > 0) starAbilityTimer--;
+            if (shakeTime > 0) shakeTime -= dt;
+            if (starAbilityTimer > 0) starAbilityTimer -= dt;
 
             roriImg.style.left = rori.x + "px"; roriImg.style.top = rori.y + "px";
             const lx = rori.x + Math.cos(rori.angle) * lamp.offset, ly = rori.y + Math.sin(rori.angle) * lamp.offset;
 
             if (star) {
-                star.timer--;
+                star.timer -= dt;
                 if (star.timer <= 0) { star = null; container.classList.remove('star-active-border'); }
                 else if (Math.sqrt((lx - star.x)**2 + (ly - star.y)**2) < lamp.captureRadius) {
                     playSFX('star');
@@ -269,14 +269,14 @@
             }
 
             zombies.forEach((z) => {
-                if (z.behavior === 'straight') { z.x += z.vx; if (z.x > 930 || z.x < 70) z.vx *= -1; }
-                else if (z.behavior === 'random') { z.x += z.vx; z.y += z.vy; if (z.x > 930 || z.x < 70) z.vx *= -1; if (z.y > 930 || z.y < 70) z.vy *= -1; }
+                if (z.behavior === 'straight') { z.x += z.vx * dt; if (z.x > 930 || z.x < 70) z.vx *= -1; }
+                else if (z.behavior === 'random') { z.x += z.vx * dt; z.y += z.vy * dt; if (z.x > 930 || z.x < 70) z.vx *= -1; if (z.y > 930 || z.y < 70) z.vy *= -1; }
                 else if (z.behavior === 'stalker') {
                     if (Math.sqrt((lx-z.x)**2 + (ly-z.y)**2) < lamp.range) { z.state = 'hunting'; z.timer = 300; }
                     if (z.state === 'hunting') {
                         const a = Math.atan2(rori.y-z.y, rori.x-z.x);
-                        z.x += Math.cos(a)*1.1; z.y += Math.sin(a)*1.1;
-                        z.timer--; if(z.timer <= 0) z.state = 'idle';
+                        z.x += Math.cos(a)*1.1 * dt; z.y += Math.sin(a)*1.1 * dt;
+                        z.timer -= dt; if(z.timer <= 0) z.state = 'idle';
                     }
                 }
                 
@@ -323,10 +323,10 @@
                     r.vx = Math.cos(a)*r.fleeSpeed; r.vy = Math.sin(a)*r.fleeSpeed; r.facingRight = r.vx > 0;
                 }
                 if (r.isJumping) {
-                    let nx = r.x + r.vx, ny = r.y + r.vy;
+                    let nx = r.x + r.vx * dt, ny = r.y + r.vy * dt;
                     if (checkCollision(nx, ny, 10) || nx < 50 || nx > 950 || ny < 50 || ny > 950) { r.vx *= -1; r.vy *= -1; r.facingRight = r.vx > 0; } 
                     else { r.x = nx; r.y = ny; }
-                    r.vx *= 0.96; r.vy *= 0.96; r.animFrame += 0.2;
+                    r.vx *= Math.pow(0.96, dt); r.vy *= Math.pow(0.96, dt); r.animFrame += 0.2 * dt;
                     if (Math.abs(r.vx) < 0.1) r.isJumping = false;
                 }
                 if (gamePhase === 'hunt' && d < lamp.captureRadius) {
@@ -349,7 +349,7 @@
             });
 
             for (let i = magicParticles.length - 1; i >= 0; i--) {
-                let p = magicParticles[i]; p.x += p.vx; p.y += p.vy; p.angle += p.spin; p.life -= 0.02;
+                let p = magicParticles[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.angle += p.spin * dt; p.life -= 0.02 * dt;
                 if (p.life <= 0) magicParticles.splice(i, 1);
             }
         }
@@ -398,11 +398,26 @@
 
             if (star) ctx.drawImage(assets.starImg, star.x-15, star.y-15, 30, 30);
             ctx.restore();
-            requestAnimationFrame(() => { update(); draw(); });
+        }
+
+        // SEPARATED THE MAIN GAMELOOP ENGINE WITH A TIMESTAMP ACCELERATOR
+        let lastTime = 0;
+        function gameLoop(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            let dt = (timestamp - lastTime) / (1000 / 60); // Standardized around 60 FPS
+            lastTime = timestamp;
+
+            // Cap dt to prevent massive jumps during browser background tab freezes
+            if (dt > 3) dt = 3; 
+
+            update(dt);
+            draw();
+
+            requestAnimationFrame(gameLoop);
         }
 
         updateHearts();
-        draw();
+        requestAnimationFrame(gameLoop);
     </script>
 </body>
 </html>
