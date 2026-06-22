@@ -28,6 +28,20 @@
         }
         canvas { display: block; position: absolute; top: 0; left: 0; background: #000; }
         
+        /* FIXED: Added Hardware Acceleration to Rori's CSS wrapper */
+        #rori-sprite { 
+            position: absolute; 
+            pointer-events: none; 
+            z-index: 10; 
+            display: block; 
+            width: 100px; 
+            height: auto; 
+            will-change: transform;
+            /* Center the sprite relative to its transform coordinates */
+            margin-left: -50px;
+            margin-top: -50px;
+        }
+        
         #ui { position: absolute; top: 20px; width: 960px; left: 20px; display: flex; justify-content: space-between; align-items: center; z-index: 3000; pointer-events: none; }
         #heart-container { display: flex; gap: 8px; }
         
@@ -66,12 +80,15 @@
         </div>
         <div id="timer"></div>
         <canvas id="gameCanvas" width="1000" height="1000"></canvas>
+        
+        <img id="rori-sprite" src="down.gif" alt="Rori">
     </div>
 
     <script>
         const container = document.getElementById('game-container');
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        const roriImg = document.getElementById('rori-sprite');
         const promptEl = document.getElementById('click-prompt');
         const scoreEl = document.getElementById('score'), heartContainer = document.getElementById('heart-container');
         const timerEl = document.getElementById('timer'), statusEl = document.getElementById('status');
@@ -96,7 +113,6 @@
 
         let level = 1, score = 0, lives = 5, gamePhase = 'wait', countdown = 3, shakeTime = 0;
         
-        // Bumped standard speed values to make gameplay explicitly snappier
         const rori = { x: 500, y: 500, moving: false, walkSpeed: 3.5, currentSpeed: 0, accel: 0.3, angle: 0, radius: 25, currentDirection: 'down' };
         const lamp = { offset: 85, range: 210, captureRadius: 50 }; 
         let rabbits = [], obstacles = [], zombies = [], magicParticles = [];
@@ -106,13 +122,11 @@
             rabbit: new Image(), bush: new Image(), tree: new Image(), tree2: new Image(),
             land1: new Image(), land2: new Image(), land3: new Image(), land4: new Image(), land5: new Image(),
             starImg: new Image(), moveImg: 'move.png', congratsImg: 'congrats.png',
-            rori_down: new Image(), rori_up: new Image(), rori_left: new Image(), rori_right: new Image(),
             z_girl: new Image(), z_man: new Image(), z_baby: new Image(), z_baby_L: new Image()
         };
         assets.rabbit.src = 'rabbit.png'; assets.bush.src = 'bush.png'; assets.tree.src = 'tree.png'; assets.tree2.src = 'tree2.png';
         assets.land1.src = 'land.jpg'; assets.land2.src = 'land2.jpg'; assets.land3.src = 'land3.jpg'; assets.land4.src = 'land4.jpg'; assets.land5.src = 'land5.jpg';
         assets.starImg.src = 'star.gif';
-        assets.rori_down.src = 'down.gif'; assets.rori_up.src = 'up.gif'; assets.rori_left.src = 'left.gif'; assets.rori_right.src = 'right.gif';
         assets.z_girl.src = 'zombie_girl.gif'; assets.z_man.src = 'zombie_man.gif'; assets.z_baby.src = 'zombie_baby.gif'; assets.z_baby_L.src = 'zombie_baby_L.gif';
 
         function updateHearts() {
@@ -133,7 +147,7 @@
         }
 
         function createMagicEffect(x, y, color = null) {
-            for (let i = 0; i < 15; i++) { // Optimization: slightly lower particle arrays to save CPU cycles
+            for (let i = 0; i < 15; i++) {
                 magicParticles.push({
                     x: x, y: y, vx: (Math.random() - 0.5) * 12, vy: (Math.random() - 0.5) * 12,
                     angle: Math.random() * Math.PI * 2, spin: (Math.random() - 0.5) * 0.3,
@@ -169,6 +183,7 @@
             
             statusEl.innerText = `LEVEL ${lvl}`;
             rori.x = 500; rori.y = 500; rori.moving = false; rori.currentSpeed = 0; rori.currentDirection = 'down';
+            roriImg.src = 'down.gif';
 
             const treeCount = lvl === 1 ? 1 : lvl === 2 ? 3 : 5;
             for(let i=0; i<treeCount; i++) {
@@ -223,7 +238,12 @@
             rori.angle = Math.atan2((e.clientY - rect.top) - rori.y, (e.clientX - rect.left) - rori.x);
             rori.moving = true;
             let deg = rori.angle * (180 / Math.PI); if (deg < 0) deg += 360;
-            rori.currentDirection = (deg >= 45 && deg < 135) ? 'down' : (deg >= 135 && deg < 225) ? 'left' : (deg >= 225 && deg < 315) ? 'up' : 'right';
+            
+            let targetDir = (deg >= 45 && deg < 135) ? 'down' : (deg >= 135 && deg < 225) ? 'left' : (deg >= 225 && deg < 315) ? 'up' : 'right';
+            if (rori.currentDirection !== targetDir) {
+                rori.currentDirection = targetDir;
+                roriImg.src = targetDir + '.gif'; // Switches standard asset paths natively
+            }
         });
 
         function update(dt) {
@@ -239,6 +259,9 @@
             
             if (shakeTime > 0) shakeTime -= dt;
             if (starAbilityTimer > 0) starAbilityTimer -= dt;
+
+            // FIXED: Positioning uses ultra-fast 3D hardware matrices instead of pixel style layouts
+            roriImg.style.transform = `translate3d(${rori.x}px, ${rori.y}px, 0)`;
 
             const lx = rori.x + Math.cos(rori.angle) * lamp.offset, ly = rori.y + Math.sin(rori.angle) * lamp.offset;
 
@@ -325,7 +348,6 @@
             }
         }
 
-        // COMPLETELY REDESIGNED HIGH-PERFORMANCE DRAW LOOP
         function draw() {
             const lx = rori.x + Math.cos(rori.angle) * lamp.offset, ly = rori.y + Math.sin(rori.angle) * lamp.offset;
             const useMask = (gamePhase === 'hunt' && starAbilityTimer <= 0);
@@ -335,14 +357,12 @@
 
             if (shakeTime > 0) ctx.translate(Math.random()*20-10, Math.random()*20-10);
 
-            // OPTIMIZATION: If hunting, apply native GPU clipping circle instead of full canvas composite overlay
             if (useMask) {
                 ctx.beginPath();
                 ctx.arc(lx, ly, lamp.range, 0, Math.PI * 2);
                 ctx.clip();
             }
 
-            // --- ALL RENDER CODE BELOW RUNS HARDWARE ACCELERATED INSIDE WINDOW CLIP ---
             let bg = assets[`land${level > 5 ? 5 : level}`];
             if (bg && bg.complete) {
                 if (level === 3 || level === 4) {
@@ -362,8 +382,7 @@
                 ctx.restore();
             });
 
-            let rImg = assets[`rori_${rori.currentDirection}`];
-            if (rImg && rImg.complete) ctx.drawImage(rImg, rori.x - 50, rori.y - 50, 100, 100);
+            // FIXED: Rori rendering is handled by the DOM element layer using `translate3d`, so it's removed here
 
             zombies.forEach((z) => {
                 if (!z.visible) return;
@@ -389,9 +408,8 @@
                 ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size); ctx.restore();
             });
 
-            ctx.restore(); // Restores full viewport layout constraints
+            ctx.restore();
 
-            // Fill everything outside the clipping mask natively with pure black
             if (useMask) {
                 ctx.save();
                 ctx.globalCompositeOperation = 'destination-over';
