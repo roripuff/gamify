@@ -28,7 +28,6 @@
         }
         canvas { display: block; position: absolute; top: 0; left: 0; background: #000; }
         
-        /* FIXED: Added hardware-accelerated structural constraints for Rori's GIF wrapper */
         #rori-sprite { 
             position: absolute; 
             pointer-events: none; 
@@ -37,7 +36,7 @@
             width: 100px; 
             height: auto; 
             will-change: transform;
-            margin-left: -50px; /* Offset alignment centers the sprite precisely */
+            margin-left: -50px; 
             margin-top: -50px;
         }
         
@@ -79,7 +78,6 @@
         </div>
         <div id="timer"></div>
         <canvas id="gameCanvas" width="1000" height="1000"></canvas>
-        
         <img id="rori-sprite" src="down.gif" alt="Rori">
     </div>
 
@@ -260,7 +258,6 @@
             if (shakeTime > 0) shakeTime -= dt;
             if (starAbilityTimer > 0) starAbilityTimer -= dt;
 
-            // FIXED: Position updates use 3D layout matrices to decouple rendering load from CPU loops
             roriImg.style.transform = `translate3d(${rori.x}px, ${rori.y}px, 0)`;
 
             const lx = rori.x + Math.cos(rori.angle) * lamp.offset, ly = rori.y + Math.sin(rori.angle) * lamp.offset;
@@ -348,7 +345,6 @@
             }
         }
 
-        // FIXED: Re-built layout draw architecture around highly optimized canvas native vector masks
         function draw() {
             const lx = rori.x + Math.cos(rori.angle) * lamp.offset, ly = rori.y + Math.sin(rori.angle) * lamp.offset;
             const useMask = (gamePhase === 'hunt' && starAbilityTimer <= 0);
@@ -358,13 +354,7 @@
 
             if (shakeTime > 0) ctx.translate(Math.random()*20-10, Math.random()*20-10);
 
-            // FIXED: Combined clipping mask and dark layers directly to prevent rendering lag
-            if (useMask) {
-                ctx.beginPath();
-                ctx.arc(lx, ly, lamp.range, 0, Math.PI * 2);
-                ctx.clip();
-            }
-
+            // --- ALL GAME TEXTURES RENDER INSIDE UNMASKED STAGE FIRST ---
             let bg = assets[`land${level > 5 ? 5 : level}`];
             if (bg && bg.complete) {
                 if (level === 3 || level === 4) {
@@ -384,7 +374,6 @@
                 ctx.restore();
             });
 
-            // FIXED: Automatically tracks aspect scaling ratios across all loaded canvas elements to avoid squashing
             zombies.forEach((z) => {
                 if (!z.visible) return;
                 ctx.save();
@@ -409,16 +398,32 @@
                 ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size); ctx.restore();
             });
 
-            ctx.restore();
-
-            // FIXED: Covers viewport layout layers correctly when lighting constraints are applied
+            // FIXED: Replaced hard-clipping bounds with high-speed radial composite gradients to simulate a realistic soft spotlight
             if (useMask) {
                 ctx.save();
+                ctx.globalCompositeOperation = 'destination-in';
+                
+                // Create gradient: Solid inside, transitions gracefully to total transparency at the edge
+                const grad = ctx.createRadialGradient(lx, ly, lamp.range * 0.3, lx, ly, lamp.range);
+                grad.addColorStop(0, 'rgba(0,0,0,1)');
+                grad.addColorStop(0.5, 'rgba(0,0,0,0.8)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(lx, ly, lamp.range, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                // Layer a smooth black backdrop underneath the gradient cutout
+                ctx.save();
                 ctx.globalCompositeOperation = 'destination-over';
-                ctx.fillStyle = 'rgba(0,0,0,0.97)';
+                ctx.fillStyle = 'rgba(0,0,0,0.98)';
                 ctx.fillRect(0, 0, 1000, 1000);
                 ctx.restore();
             }
+
+            ctx.restore();
         }
 
         let lastTime = 0;
